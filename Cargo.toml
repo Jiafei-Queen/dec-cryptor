@@ -1,0 +1,15 @@
+[package]
+name = "dec"
+version = "2.3.1"
+edition = "2024"
+
+[dependencies]
+rpassword = "7.0"
+ring = "0.17"
+aes = "0.8"
+ctr = "0.9"
+argon2 = "0.5"
+hmac = "0.12"
+sha2 = "0.10"
+hkdf = "0.12"
+rayon = "1.8"

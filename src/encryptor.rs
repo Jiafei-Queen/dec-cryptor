@@ -14,13 +14,12 @@ type Aes256Ctr = Ctr128BE<Aes256>;
 pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password: &str, parts: usize) -> Result<(), Box<dyn std::error::Error>> {
     let input_path = Path::new(input_file_path);
     let output_path = Path::new(output_file_path);
-    
+    let buffer_size = std::cmp::max(256 * 1024, (if parts == 0 { 1 } else { parts }) * 2 * 1024 * 1024);
+
     // 检查输入文件是否存在
     if !input_path.exists() || !input_path.is_file() {
         return Err(format!("输入文件不存在: {}", input_file_path).into());
     }
-    
-    println!("DEC!: 正在派生密钥..");
     
     // 启动计时器
     let start_time = start_timer();
@@ -37,7 +36,7 @@ pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password
     
     // 创建输出文件（放大写缓冲）
     let mut output_file = File::create(output_path)?;
-    let mut writer = BufWriter::with_capacity(BUFFER_SIZE, &mut output_file);
+    let mut writer = BufWriter::with_capacity(buffer_size, &mut output_file);
     
     // 写入魔数
     writer.write_all(MAGIC_NUMBER.as_bytes())?;
@@ -56,13 +55,14 @@ pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password
     
     // 打开输入文件（放大读缓冲）
     let input_file = File::open(input_path)?;
-    let mut reader = BufReader::with_capacity(BUFFER_SIZE, input_file);
+    let mut reader = BufReader::with_capacity(buffer_size, input_file);
     let file_size = input_path.metadata()?.len();
     
     // 流式加密数据
-    let mut buffer = vec![0u8; BUFFER_SIZE];
+    let mut buffer = vec![0u8; buffer_size];
     let mut total_read: u64 = 0;
-    let parallel_parts = match parts { 2 => 2, 4 => 4, 8 => 8, _ => 1 };
+    let ap = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
+    let parallel_parts = if parts == 0 { ap.max(1) } else { parts.max(1).min(ap) };
 
     // 单流加密器（仅在 parts==1 时使用）
     let mut single_cipher = if parallel_parts == 1 {
@@ -105,7 +105,7 @@ pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password
     // 显示完成状态
     let duration = start_time.elapsed();
     update_progress(file_size, file_size);
-    println!("DEC!: 加密完成，耗时: {}", format_duration(duration));
+    println!("\u{001B}[0mDEC!: 加密完成，耗时: {}", format_duration(duration));
     
     Ok(())
 }

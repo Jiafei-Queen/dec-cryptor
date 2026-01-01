@@ -12,7 +12,6 @@ pub const ARGON2_PARALLELISM: u32 = 4;
 pub const MASTER_KEY_LENGTH: usize = 32;
 pub const ENCRYPTION_KEY_LENGTH: usize = 32;
 pub const HMAC_KEY_LENGTH: usize = 32;
-pub const BUFFER_SIZE: usize =  4 * 1024 * 1024; // 4MB 默认块大小
 
 /// 生成随机盐
 pub fn generate_salt() -> Vec<u8> {
