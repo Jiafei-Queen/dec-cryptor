@@ -1,4 +1,4 @@
-# :: DEC! ::
+# dec-cryptor
 
 ## 项目概述
 
