@@ -4,12 +4,16 @@
 
 这是一个基于 Rust 的文件加密/解密工具，名为“DEC!”，它使用行业标准的加密算法提供安全的对称加密。该工具支持单线程和并行处理模式，以提高处理大型文件的性能。
 
+### License: MIT
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
 ### 实测
 > 平台：M4 Max (14C)
 
 **加密/解密**
 - 500MB: 1.6s
 - 2GB: 6.2s
+
 
 
 ## 主要特性
