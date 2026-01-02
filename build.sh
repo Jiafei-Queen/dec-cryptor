@@ -2,18 +2,22 @@
 cargo clean
 echo "\n---- [ 正在编译 \`x86_64-pc-windows-gnu\` ] ----\n"
 printf "> [ENTER]确认: "
+read
 cargo build --release --target x86_64-pc-windows-gnu
 
 echo "\n---- [ 即将编译 \`aarch64-apple-darwin\` ] ----\n"
 printf "> [ENTER]确认: "
+read
 cargo build --release --target aarch64-apple-darwin
 
 echo "\n---- [ 正在编译 \`x86_64-apple-darwin\` ] ----\n"
 printf "> [ENTER]确认: "
-cargo build \n--release --target x86_64-apple-darwin
+read
+cargo build --release --target x86_64-apple-darwin
 
 echo "\n---- [ 正在编译 \`x86_64-unknown-linux-gnu\` ] ----\n"
 printf "> [ENTER]确认: "
+read
 cargo build --release --target x86_64-unknown-linux-gnu
 
 rm -rf target/release
