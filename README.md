@@ -73,7 +73,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - `tempfile` - 创建临时文件，方便测试
 
 ## 开发相关
-- `test.bat` & `test.sh` 
+- `test.sh` 
 - - 执行 `cargo test --release -- --nocapture`
 
 
@@ -83,6 +83,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 - `manual_test.lua`
 - - 手动创建测试文件，编译，调用加密解密，清理文件
+
+
+- `build.sh`
+- - 构建 release 的辅助脚本
 
 ## 加密设计
 
