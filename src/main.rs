@@ -60,20 +60,19 @@ fn main() {
         print_version(); return;
     }
 
-    // 解析参数
+    // 获得参数
     let args = parse_args(&args).unwrap_or_else(|e| {
-        eprintln!("{}", e); print_usage(); std::process::exit(1);
+        eprintln!("{}{}{}{}", PREFIX, RED, e, RESET); print_usage(); std::process::exit(1);
     });
 
-    // 把参数抽出来
+    // 提取参数
     let op = args.op;
     let input_path = args.input_path;
-    let output = args.output_path;
+    let output_path = args.output_path.clone();
     let password = args.password;
-    let quiet = args.quiet;
 
     // 检查输出文件是否已存在
-    if !quiet && Path::new(&output).exists() {
+    if !args.quiet && Path::new(&output_path).exists() {
         print!("> output file already {}EXISTS{}, {}{}overwrite{}? [y/n]: ", BOLD, RESET, BOLD, RED, RESET);
         io::stdout().flush().unwrap();
         if !confirm() { return; }
@@ -81,8 +80,8 @@ fn main() {
 
     // 分配参数，进行下一步处理
     match op {
-        Op::Enc => handle_encrypt(input_path, output, password),
-        Op::Dec => handle_decrypt(input_path, output, password),
+        Op::Enc => handle_encrypt(input_path, output_path, password),
+        Op::Dec => handle_decrypt(input_path, output_path, password),
     }
 }
 

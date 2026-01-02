@@ -36,4 +36,6 @@ else
     tar -czf $name.tar.gz $name
 fi
 
+rm -rf dec-cryptor
+
 echo "build: 构建成功"
