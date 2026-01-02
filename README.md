@@ -1,4 +1,4 @@
-# :: DEC! ::
+# dec-cryptor
 
 ## 项目概述
 
@@ -22,58 +22,25 @@
 
 代码库采用模块化结构，主要组件如下：
 
-1. **main.rs** - 入口点，处理 CLI 参数和用户交互
+1. `main.rs` - 入口点，控制台I/O，模块调度
 
-2. **encryptor.rs** - 核心加密逻辑和文件处理
+2. `args.rs` - 解析参数
 
-3. **decryptor.rs** - 核心解密逻辑和文件处理
+3. `encryptor.rs` - 核心加密逻辑和文件处理
 
-4. **crypto_utils.rs** - 加密常量和实用函数
+4. `decryptor.rs` - 核心解密逻辑和文件处理
 
-5. **key_derivation.rs** - 使用 Argon2 和 HKDF 进行密钥派生
+5. `crypto_utils.rs` - 加密常量和实用函数
 
-6. **hmac_validator.rs** - HMAC 计算和验证
+6. `key_derivation.rs` - 使用 Argon2 和 HKDF 进行密钥派生
 
-7. **parallel_handler.rs** - 并行处理实现AES-CTR
+7. `hmac_validator.rs` - HMAC 计算和验证
 
-8. **progress_utils.rs** - 进度跟踪和计时工具
+8. `parallel_handler.rs` - 并行处理实现AES-CTR
 
-## 常见开发任务
+9. `progress_utils.rs` - 进度跟踪和计时工具
 
-### 构建项目
-
-```bash
-
-cargo build
-
-cargo build --release
-
-```
-
-### 运行工具
-
-```bash
-# 加密文件
-
-cargo run -- -e input_file [output_file.dec]
-
-# 解密文件
-
-cargo run -- -d input_file.dec [output_file]
-
-# 检查版本
-
-cargo run -- -v
-
-```
-
-### 测试
-
-```bash
-
-cargo test
-
-```
+10. `lib.rs` - 封装模块，方便 `tests/integration_tests.rs` 集合测试
 
 ### 依赖项
 
@@ -90,6 +57,20 @@ cargo test
 - `hkdf` - HKDF 密钥派生
 
 - `rayon` - 并行处理
+
+- `tempfile` - 创建临时文件，方便测试
+
+## 开发相关
+- `test.bat` & `test.sh` 
+- - 执行 `cargo test --release -- --nocapture`
+
+
+- `create_file.lua`
+- - 生成 **目标大小** 测试文件
+
+
+- `manual_test.lua`
+- - 手动创建测试文件，编译，调用加密解密，清理文件
 
 ## 加密设计
 

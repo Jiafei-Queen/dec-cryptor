@@ -34,11 +34,10 @@ pub fn check_version(input_file_path: &str) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
-pub fn decrypt_with_mode(input_file_path: &str, output_file_path: &str, password: &str, parts: usize) -> Result<(), Box<dyn std::error::Error>> {
+pub fn decrypt_with_mode(input_file_path: &str, output_file_path: &str, password: &str) -> Result<(), Box<dyn std::error::Error>> {
     let input_path = Path::new(input_file_path);
     let output_path = Path::new(output_file_path);
-    let buffer_size = std::cmp::max(256 * 1024, (if parts == 0 { 1 } else { parts }) * 2 * 1024 * 1024);
-    
+
     if !input_path.exists() || !input_path.is_file() {
         return Err(format!("输入文件不存在: {}", input_file_path).into());
     }
@@ -47,7 +46,7 @@ pub fn decrypt_with_mode(input_file_path: &str, output_file_path: &str, password
     let start_time = start_timer();
     
     // 读取文件头信息（使用缓冲读）
-    let mut file = BufReader::with_capacity(buffer_size, File::open(input_path)?);
+    let mut file = BufReader::with_capacity(BUFFER_SIZE, File::open(input_path)?);
     
     // 跳过魔数和版本字节
     file.seek(SeekFrom::Start((MAGIC_NUMBER.len() + 1) as u64))?;
@@ -72,11 +71,11 @@ pub fn decrypt_with_mode(input_file_path: &str, output_file_path: &str, password
     
     // 创建输出文件（放大写缓冲）
     let mut output_file = File::create(output_path)?;
-    let mut writer = BufWriter::with_capacity(buffer_size, &mut output_file);
+    let mut writer = BufWriter::with_capacity(BUFFER_SIZE, &mut output_file);
     
     // parts 模式：仅当 parts==1 时持有单流解密器；否则使用并行处理
-    let ap = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
-    let parallel_parts = if parts == 0 { ap.max(1) } else { parts.max(1).min(ap) };
+    let parallel_parts = get_parts();
+
     let mut single_cipher = if parallel_parts == 1 {
         Some(Aes256Ctr::new(encryption_key.as_slice().into(), iv.as_slice().into()))
     } else { None };
@@ -85,11 +84,11 @@ pub fn decrypt_with_mode(input_file_path: &str, output_file_path: &str, password
     let mut hmac = HmacValidator::new(&hmac_key)?;
     
     // 流式解密数据
-    let mut buffer = vec![0u8; buffer_size];
+    let mut buffer = vec![0u8; BUFFER_SIZE];
     let mut total_read = 0;
     
     while total_read < encrypted_data_length {
-        let bytes_to_read = std::cmp::min(buffer_size as u64, encrypted_data_length - total_read) as usize;
+        let bytes_to_read = std::cmp::min(BUFFER_SIZE as u64, encrypted_data_length - total_read) as usize;
         let bytes_read = file.read(&mut buffer[..bytes_to_read])?;
         
         if bytes_read == 0 {
@@ -108,8 +107,7 @@ pub fn decrypt_with_mode(input_file_path: &str, output_file_path: &str, password
                 encryption_key.as_slice(),
                 iv.as_slice(),
                 chunk,
-                total_read as usize,
-                parallel_parts,
+                total_read as usize
             ).map_err(|e| format!("parallel decrypt error: {}", e))?;
         }
         
@@ -134,7 +132,7 @@ pub fn decrypt_with_mode(input_file_path: &str, output_file_path: &str, password
     // 显示进度完成
     let duration = start_time.elapsed();
     update_progress(encrypted_data_length, encrypted_data_length);
-    println!("\u{001B}[0mDEC!: 解密完成，耗时: {}", format_duration(duration));
+    println!("\u{001B}[0mDEC!: Done!  cost: {}", format_duration(duration));
     
     Ok(())
 }

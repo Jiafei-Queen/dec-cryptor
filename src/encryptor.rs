@@ -11,10 +11,9 @@ use crate::hmac_validator::HmacValidator;
 
 type Aes256Ctr = Ctr128BE<Aes256>;
 
-pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password: &str, parts: usize) -> Result<(), Box<dyn std::error::Error>> {
+pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password: &str) -> Result<(), Box<dyn std::error::Error>> {
     let input_path = Path::new(input_file_path);
     let output_path = Path::new(output_file_path);
-    let buffer_size = std::cmp::max(256 * 1024, (if parts == 0 { 1 } else { parts }) * 2 * 1024 * 1024);
 
     // 检查输入文件是否存在
     if !input_path.exists() || !input_path.is_file() {
@@ -36,7 +35,7 @@ pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password
     
     // 创建输出文件（放大写缓冲）
     let mut output_file = File::create(output_path)?;
-    let mut writer = BufWriter::with_capacity(buffer_size, &mut output_file);
+    let mut writer = BufWriter::with_capacity(BUFFER_SIZE, &mut output_file);
     
     // 写入魔数
     writer.write_all(MAGIC_NUMBER.as_bytes())?;
@@ -55,14 +54,13 @@ pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password
     
     // 打开输入文件（放大读缓冲）
     let input_file = File::open(input_path)?;
-    let mut reader = BufReader::with_capacity(buffer_size, input_file);
+    let mut reader = BufReader::with_capacity(BUFFER_SIZE, input_file);
     let file_size = input_path.metadata()?.len();
     
     // 流式加密数据
-    let mut buffer = vec![0u8; buffer_size];
+    let mut buffer = vec![0u8; BUFFER_SIZE];
     let mut total_read: u64 = 0;
-    let ap = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4);
-    let parallel_parts = if parts == 0 { ap.max(1) } else { parts.max(1).min(ap) };
+    let parallel_parts = get_parts();
 
     // 单流加密器（仅在 parts==1 时使用）
     let mut single_cipher = if parallel_parts == 1 {
@@ -84,7 +82,6 @@ pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password
                 iv.as_slice(),
                 chunk,
                 total_read as usize,
-                parallel_parts,
             ).map_err(|e| format!("parallel encrypt error: {}", e))?;
         }
 
@@ -105,7 +102,7 @@ pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password
     // 显示完成状态
     let duration = start_time.elapsed();
     update_progress(file_size, file_size);
-    println!("\u{001B}[0mDEC!: 加密完成，耗时: {}", format_duration(duration));
+    println!("\u{001B}[0mDEC!: Done!  cost: {}", format_duration(duration));
     
     Ok(())
 }

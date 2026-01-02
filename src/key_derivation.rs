@@ -36,3 +36,50 @@ pub fn derive_encryption_and_hmac_keys(master_key: &[u8]) -> Result<(Vec<u8>, Ve
 
     Ok((encryption_key, hmac_key))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::crypto_utils::{SALT_LENGTH, MASTER_KEY_LENGTH, ENCRYPTION_KEY_LENGTH, HMAC_KEY_LENGTH};
+
+    #[test]
+    fn test_derive_master_key() {
+        let password = b"test_password";
+        let salt = vec![0u8; SALT_LENGTH];
+
+        let result = derive_master_key(password, &salt);
+        assert!(result.is_ok());
+
+        let master_key = result.unwrap();
+        assert_eq!(master_key.len(), MASTER_KEY_LENGTH);
+    }
+
+    #[test]
+    fn test_derive_encryption_and_hmac_keys() {
+        // 先生成一个主密钥
+        let password = b"test_password";
+        let salt = vec![0u8; SALT_LENGTH];
+        let master_key = derive_master_key(password, &salt).unwrap();
+
+        let result = derive_encryption_and_hmac_keys(&master_key);
+        assert!(result.is_ok());
+
+        let (encryption_key, hmac_key) = result.unwrap();
+        assert_eq!(encryption_key.len(), ENCRYPTION_KEY_LENGTH);
+        assert_eq!(hmac_key.len(), HMAC_KEY_LENGTH);
+        // 确保两个密钥不同
+        assert_ne!(encryption_key, hmac_key);
+    }
+
+    #[test]
+    fn test_consistent_key_derivation() {
+        let password = b"consistent_test_password";
+        let salt = vec![1u8; SALT_LENGTH];
+
+        // 多次调用应该产生相同的结果
+        let key1 = derive_master_key(password, &salt).unwrap();
+        let key2 = derive_master_key(password, &salt).unwrap();
+
+        assert_eq!(key1, key2);
+    }
+}
