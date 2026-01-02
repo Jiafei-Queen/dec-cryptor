@@ -5,110 +5,39 @@ mod progress_utils;
 mod hmac_validator;
 mod key_derivation;
 mod parallel_handler;
+mod args;
 
-use std::io;
+use args::*;
+use rpassword::read_password;
 use std::env;
+use std::io;
 use std::io::Write;
 use std::path::Path;
-use rpassword::read_password;
-
-const PREFIX: &str = "DEC!: ";
-
-fn main() {
-    // 收集参数
-    let args: Vec<String> = env::args().collect();
-    
-    // 检查参数数量（允许 -O 标志）
-    if args.len() < 2 || args.len() > 4 {
-        print_usage();
-        return;
-    }
-    
-    // 参数分类
-    let op_arg = args[1].as_str();
-    let operation;
-
-    match op_arg {
-        "-v" | "--version" => { print_version(); return; }
-        "-e" | "--encrypt" => { operation = "--enc"; }
-        "-d" | "--decrypt" => { operation = "--dec"; }
-        _ => { print_usage(); return; }
-    }
-
-    // 并行度：自动使用所有可用核心（内部会根据硬件并行度确定线程数）
-    let parts = 0usize;
-    let idx = 2usize;
-
-    // 检查输入文件参数
-    if args.len() <= idx {
-        println!("{}no path input", PREFIX);
-        print_usage();
-        return;
-    }
-
-    let input_path = args[idx].clone();
-    
-    // 检查输入文件是否存在
-    if !Path::new(&input_path).exists() {
-        println!("{}no such file", PREFIX);
-        return;
-    }
-    
-    // 确定输出路径
-    let output_path = if args.len() > idx + 1 {
-        args[idx + 1].clone()
-    } else {
-        let mut output = input_path.clone();
-        if operation == "--enc" {
-            output.push_str(".decx");
-        } else {
-            // 对于解密，移除.decx扩展名
-            if output.ends_with(".decx") {
-                output = output[..output.len() - 5].to_string();
-            } else {
-                output.push_str(".decx");
-            }
-        }
-        output
-    };
-
-    // 保存 parts 到环境中的静态传递通过闭包
-    let optimization_parts = parts;
-
-    // 检查输出文件是否已存在
-    if Path::new(&output_path).exists() {
-        print!("> output file already EXISTS, overwrite? [y/n]: ");
-        io::stdout().flush().unwrap();
-        if !confirm() { return; }
-    }
-
-    // 分配参数，进行下一步处理
-    match operation {
-        "--enc" => handle_encrypt(input_path, output_path, optimization_parts),
-        "--dec" => handle_decrypt(input_path, output_path, optimization_parts),
-        _ => print_usage(),
-    }
-}
 
 fn print_usage() {
-    println!("Usage: dec [OPTION...] [INPUT_FILE]...");
+    println!("Usage: dec [OPERATION] [INPUT_FILE] [OPTIONS]");
 
-    println!("\nExample:");
+    println!("Example:");
     println!("  # Encrypt `input_file.txt` and outputs `output_file.txt.decx`");
-    println!("  dec -e input_file.txt output_file.txt.decx\n");
+    println!("  dec -e input_file.txt\n");
 
-    println!("  # Encrypt `input.tar` (outputs `input.tar.decx`)");
-    println!("  dec --encrypt input.tar\n");
+    println!("  # Encrypt `input.tar` (outputs `dec_file`)");
+    println!("  dec --encrypt input.tar -o dec_file\n");
 
     println!("  # Decrypt `example.tar.decx` (outputs `example.tar`)");
     println!("  dec -d example.tar.decx");
 
-    println!("\nOperations:");
-    println!("  -e, --encrypt\t\tencrypt a file");
-    println!("  -d, --decrypt\t\tdecrypt a file");
+    println!("Operations:");
+    println!("  -e, --encrypt\t\t\tencrypt a file");
+    println!("  -d, --decrypt\t\t\tdecrypt a file");
 
-    println!("\nOthers:");
-    println!("  -v, --version\t\tshow version");
+    println!("Options:");
+    println!("  -o, --output\t\t\tset output file name");
+    println!("  -p, --password\t\tset password");
+    println!("  -q, --quiet\t\t\tno check");
+
+    println!("Others:");
+    println!("  -v, --version\t\t\tshow version");
 }
 
 fn print_version() {
@@ -116,46 +45,116 @@ fn print_version() {
     println!("Copyright (C) 2026 jiafeiown.org, Jiafei");
 }
 
-fn handle_encrypt(input_path: String, output_path: String, parts: usize) {
-    let password = get_password();
-    if !confirm_password(&password) {
-        println!("{}passwords do not match.", PREFIX);
-        return;
+const PREFIX: &str = "DEC!: ";
+const RESET: &str = "\u{001B}[0m";
+const BOLD: &str = "\u{001B}[1m";
+const RED: &str = "\u{001B}[31m";
+
+fn main() {
+    // 收集参数
+    let args: Vec<String> = env::args().skip(1).collect();
+
+    // 打印版本
+    if args.len() == 1 && (args[0] == "-v" || args[0] == "--version") {
+        print_version(); return;
     }
 
-    match encryptor::encrypt_with_mode(&input_path, &output_path, &password, parts) {
-        Ok(_) => {},
-        Err(e) => println!("{}encryption failed: {}", PREFIX, e),
+    // 解析参数
+    let args = parse_args(&args).unwrap_or_else(|e| {
+        eprintln!("{}", e); print_usage(); std::process::exit(1);
+    });
+
+    // 把参数抽出来
+    let op = args.op;
+    let input_path = args.input_path;
+    let output = args.output_path;
+    let password = args.password;
+    let quiet = args.quiet;
+
+    // 检查输出文件是否已存在
+    if !quiet && Path::new(&output).exists() {
+        print!("> output file already {}EXISTS{}, {}{}overwrite{}? [y/n]: ", BOLD, RESET, BOLD, RED, RESET);
+        io::stdout().flush().unwrap();
+        if !confirm() { return; }
+    }
+
+    // 分配参数，进行下一步处理
+    match op {
+        Op::Enc => handle_encrypt(input_path, output, password),
+        Op::Dec => handle_decrypt(input_path, output, password),
     }
 }
 
-fn handle_decrypt(input_path: String, output_path: String, parts: usize) {
-    let password = get_password();
-    
+/*
+ * 接手加密
+ */
+fn handle_encrypt(input_path: String, output_path: String, mut password: Option<String>) {
+    // `confirmed` 用来区分 参数 和 输入
+    let mut confirmed = true;
+    if password == None {
+        password = Some(get_password());
+        confirmed = false;
+    }
+
+    // 转换 password
+    let password = match password {
+        Some(p) => p,
+        _ => unreachable!()
+    };
+
+    if !confirmed && !confirm_password(&password) {
+        eprintln!("{}{}passwords mismatch{}", PREFIX, RED, RESET);
+        return;
+    }
+
+    match encryptor::encrypt_with_mode(&input_path, &output_path, &password) {
+        Ok(_) => {},
+        Err(e) => eprintln!("[{}ERROR{}]: encryption failed: {}{}{}", RED, RESET, e, RED, RESET),
+    }
+}
+
+/*
+ * 接手解密
+ */
+fn handle_decrypt(input_path: String, output_path: String, mut password: Option<String>) {
+    // 获取密码
+    if password == None {
+        password = Some(get_password());
+    }
+
+    // 转换 password
+    let password = match password {
+        Some(p) => p,
+        _ => unreachable!()
+    };
+
     // 检查文件版本
     match decryptor::check_version(&input_path) {
         Ok(_) => {},
         Err(e) => {
-            println!("{}version mismatch: {}", PREFIX, e);
+            eprintln!("[{}ERROR{}]: version mismatch: {}{}{}", RED, RESET, e, RED, RESET);
             return;
         }
     }
     
-    match decryptor::decrypt_with_mode(&input_path, &output_path, &password, parts) {
+    match decryptor::decrypt_with_mode(&input_path, &output_path, &password) {
         Ok(_) => {},
-        Err(e) => println!("{}decryption failed: {}", PREFIX, e),
+        Err(e) => eprintln!("[{}ERROR{}]: decryption failed: {}{}{}", RED, RESET, e, RED, RESET),
     }
 }
 
+/*
+ * 以下都是辅助函数
+ */
 fn get_password() -> String {
-    print!("> password: ");
+    print!("> {}password:{} ", BOLD, RESET);
     io::stdout().flush().unwrap();
     let password = read_password().unwrap();
     password
 }
 
 fn confirm_password(password: &String) -> bool {
-    print!("> confirm password");
+    print!("> {}confirm password:{} ", BOLD, RESET);
     io::stdout().flush().unwrap();
     let local_password = read_password().unwrap();
     password == &local_password
