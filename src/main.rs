@@ -43,6 +43,7 @@ fn print_usage() {
 fn print_version() {
     println!(":: DEC! :: (v{})", env!("CARGO_PKG_VERSION"));
     println!("Copyright (C) 2026 jiafeiown.org, Jiafei");
+    println!("License: MIT");
 }
 
 const PREFIX: &str = "DEC!: ";
