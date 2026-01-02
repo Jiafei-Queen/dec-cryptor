@@ -31,11 +31,10 @@ cp -r target $name
 
 if [ $(uname -s) == "Darwin" ]; then
     dot_clean $name 
-    gtar -czf $name.tar.gz $name
-else
-    tar -czf $name.tar.gz $name
 fi
 
-rm -rf dec-cryptor
+7z a $name.7z $name
+
+rm -rf $name
 
 echo "build: 构建成功"
