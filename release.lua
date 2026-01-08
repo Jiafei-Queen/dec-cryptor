@@ -12,12 +12,9 @@ local function get_version(handle)
     local version
     for line in handle:lines() do
         line = line:gsub(" ", "")
-        if line:match("version=\"[%d%.]+\"") then
-            version = line:gsub("version=", ""):gsub("\"", "")
-        end
+        version = line:match("^version=\"([%d%.]+)")
+        if version then break end
     end
-
-    handle:close()
 
     if not version then
         print("cannot parse version tag, please enter it manually")
@@ -30,11 +27,12 @@ end
 
 ---- [ 获取项目名称 ] ----
 local function get_name()
+    local unix = os.getenv("HOME")
     local name
-    local handle = io.popen("basename `pwd`")
-    if handle then
-        name = handle:read("*a")
-        handle:close()
+    if unix then
+        name = io.popen("basename `pwd`"):read("*a"):gsub("\n", "")
+    else
+        name = io.popen("for %i in (\"%CD%\") do @echo %~nxi"):read("*a"):gsub("\n", "")
     end
 
     if not name then
@@ -57,6 +55,20 @@ end
 local z = io.popen("which 7z")
 if not z or z:read("*a") == "" then
     io.stderr:write("build: 7z not found\n")
+    return
+end
+
+---- [ 检测 `cross` 工具链 ] ----
+local result = io.popen("cross --version"):read("*a")
+if not result then
+    io.stderr:write("build: `cross` toolchain not found")
+    return
+end
+
+---- [ 检测 `docker` ] ----
+local result = io.popen("docker --version"):read("*a")
+if not result then
+    io.stderr:write("build: `docker` not found")
     return
 end
 
@@ -88,12 +100,25 @@ end
 if not name then name = get_name() end
 if not version then version = get_version(handle) end
 
+print("name: "..name)
+print("version: "..version)
+print("---")
+io.write("> confirm? [y/n]: ")
+local confirm = io.read()
+if confirm == "n" then
+    print("\nCancel.\n")
+    return
+elseif confirm ~= "y" then
+    print("\nunknown option: <"..confirm..">")
+    print("Cancel.\n")
+    return
+end
+
 ---- [ 开始构建 ] ----
 os.execute("cargo clean")
 
 local targets = {
-    "x86_64-pc-windows-gnu", "aarch64-apple-darwin",
-    "x86_64-apple-darwin", "x86_64-unknown-linux-gnu"
+    "x86_64-pc-windows-gnu", "x86_64-unknown-linux-gnu"
 }
 
 local handle = io.popen("rustup target list")
@@ -115,7 +140,7 @@ end
 
 for _,target in ipairs(targets) do
     print(string.format("\n---- [ 编译: `%s` ] ----\n", target))
-    local ok = os.execute("cargo build --release --target "..target)
+    local ok = os.execute("cross build --release --target "..target)
     if not ok then
         io.stderr:write("build: build stop\n")
         return
@@ -123,11 +148,12 @@ for _,target in ipairs(targets) do
 end
 
 local dir = name.."_"..version
+
 os.execute("cp -r target "..dir)
 
 os.execute(string.format("rm -rf %s/release %s/debug", dir, dir))
 
-if io.popen("uname -a"):read("*a") == "Darwin" then
+if io.popen("uname -s"):read("*a"):match("^Darwin") then
     os.execute("dot_clean "..dir)
 end
 
