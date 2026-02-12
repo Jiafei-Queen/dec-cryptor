@@ -102,7 +102,7 @@ pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password
     // 显示完成状态
     let duration = start_time.elapsed();
     update_progress(file_size, file_size);
-    println!("\u{001B}[0mDEC!: Done!  cost: {}", format_duration(duration));
+    println!("\u{001B}[0mDEC!: Done in {}", format_duration(duration));
     
     Ok(())
 }

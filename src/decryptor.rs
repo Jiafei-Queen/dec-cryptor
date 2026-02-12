@@ -132,7 +132,7 @@ pub fn decrypt_with_mode(input_file_path: &str, output_file_path: &str, password
     // 显示进度完成
     let duration = start_time.elapsed();
     update_progress(encrypted_data_length, encrypted_data_length);
-    println!("\u{001B}[0mDEC!: Done!  cost: {}", format_duration(duration));
+    println!("\u{001B}[0mDEC!: Done in {}", format_duration(duration));
     
     Ok(())
 }
