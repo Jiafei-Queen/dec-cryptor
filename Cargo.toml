@@ -3,6 +3,12 @@ name = "dec"
 version = "2.5.0"
 edition = "2024"
 license = "MIT"
+authors = ["Jiafei <你的邮箱>"]
+description = "A high-performance file encryption tool using AES-256-CTR and Argon2id."
+repository = "https://github.com/Jiafei-Queen/dec-cryptor"
+readme = "README.md"
+keywords = ["encryption", "aes", "parallel", "security", "argon2"]
+categories = ["cryptography", "command-line-utilities"]
 
 [dependencies]
 rpassword = "7.4.0"
