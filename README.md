@@ -46,9 +46,13 @@ DEC! achieves remarkable performance through intelligent parallelization:
 - **CTR Mode Compatibility**: Uses stream cipher seeking to maintain cryptographic consistency
 - **Threshold-based Fallback**: Uses single-threaded processing for small files (<16KB) to minimize overhead
 
+Test Environment:
+- Device: MacBook Pro (M4 Max) 
+- Test Command: ` cargo test --release --test integration_test -- --nocapture`
+
 Performance benchmarks on a 500MB file:
-- Encryption: ~X MB/s
-- Decryption: ~Y MB/s
+- Encryption: ~320 MB/s
+- Decryption: ~325 MB/s
 - Utilizes all available CPU cores efficiently
 
 ### Security Features
