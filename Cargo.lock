@@ -151,7 +151,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "dec"
+name = "dec-cryptor"
 version = "2.5.0"
 dependencies = [
  "aes",
