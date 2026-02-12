@@ -156,23 +156,6 @@ Typical performance on modern hardware:
 - Large files (100MB+): Fully utilizes all CPU cores
 - Very large files (1GB+): Sustained throughput of hundreds of MB/s
 
-## Security Considerations
-
-### Threat Model
-
-DEC! protects against:
-- Eavesdropping on encrypted files
-- Modification/tampering of ciphertext
-- Password brute-force attacks through Argon2 parameters
-- Side-channel attacks through constant-time operations
-
-### Limitations
-
-- **Password Strength**: Security depends on user password strength
-- **Physical Access**: Does not protect against keyloggers or screen capture
-- **Metadata**: File names and sizes are not hidden
-- **Network**: No built-in network transmission capabilities
-
 ## Comparison with Alternatives
 
 | Tool | Algorithm | Parallel | Language | Performance |
