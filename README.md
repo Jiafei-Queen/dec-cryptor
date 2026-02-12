@@ -72,8 +72,8 @@ Performance benchmarks on a 500MB file:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/dec.git
-cd dec
+git clone https://github.com/Jiafei-Queen/dec-cryptor.git
+cd dec-cryptor
 
 # Build in release mode (recommended for performance)
 cargo build --release
@@ -84,7 +84,7 @@ cargo build --release
 ### Installing via Cargo
 
 ```bash
-cargo install dec
+cargo install dec-cryptor
 ```
 
 ## Usage
@@ -158,12 +158,12 @@ Typical performance on modern hardware:
 
 ## Comparison with Alternatives
 
-| Tool | Algorithm | Parallel | Language | Performance |
-|------|-----------|----------|----------|-------------|
-| DEC! | AES-256-CTR + Argon2id | ✅ Yes | Rust | Excellent |
-| GPG | AES-128/256 | ❌ No | C | Good |
-| OpenSSL | Various | ❌ No | C | Fair |
-| 7-Zip | AES-256 | ❌ No | C++ | Fair |
+| Tool    | Algorithm              | Parallel | Language | Performance |
+|---------|------------------------|----------|----------|-------------|
+| DEC!    | AES-256-CTR + Argon2id | ✅ Yes    | Rust     | Excellent   |
+| GPG     | AES-128/256            | ❌ No     | C        | Good        |
+| OpenSSL | Various                | ❌ No     | C        | Fair        |
+| 7-Zip   | AES-256                | ❌ No     | C++      | Fair        |
 
 ## Contributing
 
@@ -204,6 +204,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## Support
 
 For issues, feature requests, or questions:
-1. Check existing [issues](https://github.com/yourusername/dec/issues)
+1. Check existing [issues](https://github.com/Jiafei-Queen/dec-cryptor/issues)
 2. Create a new issue with detailed information
 3. Include version information and steps to reproduce problems
