@@ -62,7 +62,9 @@ fn main() {
 
     // 获得参数
     let args = parse_args(&args).unwrap_or_else(|e| {
-        eprintln!("{}{}{}{}", PREFIX, RED, e, RESET); print_usage(); std::process::exit(1);
+        print_usage();
+        eprintln!("---\n{}{}{}{}", PREFIX, RED, e, RESET);
+        std::process::exit(1);
     });
 
     // 提取参数
