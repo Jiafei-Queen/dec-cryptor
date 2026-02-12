@@ -1,5 +1,4 @@
-use ring::rand;
-use ring::rand::SecureRandom;
+use rand::random;
 
 // 常量定义
 pub const MAGIC_NUMBER: &str = "DEC!";
@@ -21,18 +20,14 @@ pub fn get_parts() -> usize {
 
 /// 生成随机盐
 pub fn generate_salt() -> Vec<u8> {
-    let mut salt = vec![0u8; SALT_LENGTH];
-    let rng = rand::SystemRandom::new();
-    rng.fill(&mut salt).expect("Failed to generate salt");
-    salt
+    let salt: [u8; SALT_LENGTH] = random();
+    salt.to_vec()
 }
 
 /// 生成随机IV
 pub fn generate_iv() -> Vec<u8> {
-    let mut iv = vec![0u8; IV_LENGTH];
-    let rng = rand::SystemRandom::new();
-    rng.fill(&mut iv).expect("Failed to generate IV");
-    iv
+    let iv: [u8; IV_LENGTH] = random();
+    iv.to_vec()
 }
 
 #[cfg(test)]
