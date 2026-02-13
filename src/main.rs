@@ -2,7 +2,6 @@ mod decryptor;
 mod encryptor;
 mod crypto_utils;
 mod progress_utils;
-mod hmac_validator;
 mod key_derivation;
 mod parallel_handler;
 mod args;

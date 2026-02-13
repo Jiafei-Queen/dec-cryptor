@@ -12,21 +12,38 @@ pub struct Args {
     pub quiet: bool,
 }
 pub fn parse_args(args: &Vec<String>) -> Result<Args, String> {
-    // 标准：~ -e file （两个往上）
-    if args.len() < 2 {
-        return Err("arg too short".to_string());
-    }
+    if args.len() < 2 { return Err("arg too short".to_string()); }
 
-    // 参数分类
-    let op = {
-        match args[0].as_str() {
-            "-e" | "--encrypt" => { Op::Enc }
-            "-d" | "--decrypt" => { Op::Dec }
-            _ => {
-                return Err("unknown operation".to_string())
-            }
-        }
+    let op = match args[0].as_str() {
+        "-e" | "--encrypt" => Op::Enc,
+        "-d" | "--decrypt" => Op::Dec,
+        _ => return Err("unknown operation".to_string()),
     };
+
+    let input_path = args[1].clone();
+    if !Path::new(&input_path).exists() { return Err("no such file".to_string()); }
+
+    let mut quiet = false;
+    let mut output_path: Option<String> = None;
+    let mut password: Option<String> = None;
+
+    let mut iter = args[2..].iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "-q" | "--quiet" => quiet = true,
+            "-p" | "--password" => {
+                if password.is_some() { return Err("one password option only".to_string()); }
+                password = iter.next().cloned(); // 安全获取下一个参数
+                if password.is_none() { return Err("password missing".to_string()); }
+            }
+            "-o" | "--output" => {
+                if output_path.is_some() { return Err("one output option only".to_string()); }
+                output_path = iter.next().cloned();
+                if output_path.is_none() { return Err("output path missing".to_string()); }
+            }
+            _ => return Err(format!("unknown option: {}", arg)),
+        }
+    }
 
     // 获取 输出文件路径
     let input_path = args[1].clone();

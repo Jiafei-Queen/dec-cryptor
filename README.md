@@ -1,209 +1,131 @@
-# DEC! - High-Performance File Encryption Tool
+# DEC! - 高性能文件加密工具
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![许可证：MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 [![Rust](https://img.shields.io/badge/rust-2024-orange.svg)](https://www.rust-lang.org/)
 
-DEC! is a high-performance file encryption tool written in Rust that provides strong security with excellent performance through parallel processing capabilities.
+## ⚠️ WARNING / 警告
+```
+EN: PRE-RELEASE SOFTWARE - USE AT YOUR OWN RISK
+This is a testing branch of DEC!. The software is currently in active development and has not undergone a formal security audit.
 
-## Features
+- Data Loss Risk: Future updates may change the file format, making files encrypted with older versions unreadable.
 
-- 🔒 **Military-Grade Encryption**: AES-256-CTR with Argon2id key derivation
-- ⚡ **Parallel Processing**: Utilizes all CPU cores for maximum performance
-- 🛡️ **Integrity Protection**: HMAC-SHA256 validation to detect tampering
-- 📈 **Real-time Progress Tracking**: Visual progress bar with throughput metrics
-- 💾 **Memory Efficient**: Streams files with configurable buffer sizes
-- 🖥️ **Cross-platform**: Works on Windows, macOS, and Linux
+- Security: Do not use this for highly sensitive data yet.
 
-## Technical Details
-
-### Cryptographic Design
-
-DEC! implements a robust cryptographic architecture:
-
-1. **Key Derivation**:
-   - Uses Argon2id (winner of the Password Hashing Competition) with:
-     - 65,536 KiB memory usage
-     - 3 iterations
-     - 4-way parallelism
-   - HKDF-SHA256 for expanding the master key into separate encryption and HMAC keys
-
-2. **Encryption**:
-   - AES-256 in CTR mode (no padding required)
-   - Unique salt (16 bytes) and IV (16 bytes) for each operation
-   - Authenticated encryption with HMAC-SHA256
-
-3. **File Format**:
-   ```
-   [Magic Number][Version][Salt][IV][Encrypted Data][HMAC]
-   ```
-
-### Parallel Processing Architecture
-
-DEC! achieves remarkable performance through intelligent parallelization:
-
-- **Adaptive Threading**: Automatically detects CPU core count
-- **Chunk-based Processing**: Splits data into chunks for parallel processing
-- **CTR Mode Compatibility**: Uses stream cipher seeking to maintain cryptographic consistency
-- **Threshold-based Fallback**: Uses single-threaded processing for small files (<16KB) to minimize overhead
-
-Test Environment:
-- Device: MacBook Pro (M4 Max) 
-- Test Command: ` cargo test --release --test integration_test -- --nocapture`
-
-Performance benchmarks on a 500MB file:
-- Encryption: ~320 MB/s
-- Decryption: ~325 MB/s
-- Utilizes all available CPU cores efficiently
-
-### Security Features
-
-- **Forward Secrecy**: New salt and IV for every operation
-- **Tamper Detection**: HMAC validation prevents modification attacks
-- **Memory Safety**: Written in Rust with zero runtime crashes
-- **Password Security**: Secure password input that doesn't echo to terminal
-
-## Installation
-
-### Prerequisites
-
-- Rust 1.65 or higher
-
-### Building from Source
-
-```bash
-# Clone the repository
-git clone https://github.com/Jiafei-Queen/dec-cryptor.git
-cd dec-cryptor
-
-# Build in release mode (recommended for performance)
-cargo build --release
-
-# The executable will be in target/release/dec
+- Stability: Breaking changes to the CLI and internal logic can occur at any time without notice.
 ```
 
-### Installing via Cargo
+```
+ZH: 预发布软件 - 使用风险自担
+这是 DEC! 的 开发测试分支。本项目目前处于活跃开发阶段，且尚未经过正式的安全审计。
 
-```bash
-cargo install dec-cryptor
+- 数据丢失风险：后续更新可能会更改文件格式，导致旧版本加密的文件无法被新版本解密。
+
+- 安全性：现阶段请勿将其用于存储极度敏感的数据。
+
+- 稳定性：命令行参数及内部逻辑可能会在不经预告的情况下发生破坏性变更。
 ```
 
-## Usage
+DEC! 是一款用 Rust 编写的高性能文件加密工具，它利用并行处理能力，在提供强大安全性的同时，也实现了卓越的性能。
 
-### Basic Commands
+## 功能特性
 
-```bash
-# Encrypt a file
-dec -e input_file.txt
+- 🔒 **军用级加密**：采用 Argon2id 密钥派生的 AES-256-GCM 加密
 
-# Decrypt a file
-dec -d encrypted_file.decx
+- ⚡ **并行处理**：充分利用所有 CPU 核心，实现最佳性能
 
-# Specify output file name
-dec -e input.tar -o encrypted_archive
+- 📈 **实时进度跟踪**：可视化进度条，显示吞吐量指标
 
-# Specify password (otherwise prompted)
-dec -d secret.doc.decx -p mysecretpassword
+- 💾 **内存高效**：支持可配置缓冲区大小的文件流传输
 
-# Quiet mode (skip overwrite confirmation)
-dec -e confidential.pdf -q
+- 🖥️ **跨平台**：支持 Windows、macOS 和 Linux 系统
+
+## 技术细节
+
+### 加密设计
+
+DEC!实现稳健的加密架构：
+
+1. **密钥派生**：
+
+- 使用 Argon2id（密码哈希竞赛的获胜者），具体参数如下：
+
+- 内存占用：256 MiB
+
+- 3 次迭代
+
+- 2 路并行
+
+2. **加密**：
+
+- AES-GCM 对单个 块 进行 加/解密
+
+- 每次操作使用唯一的盐值（16 字节）
+
+- 每次操作使用的 Nonce 来自 (base_iv + chunk_index)，保证不复用
+
+- 每一个块都有自己的 校验码（保证密码输入错误的用户体验，以及获取文件篡改的具体位置）
+
+3. **文件格式**：
+
 ```
 
-### Command Line Options
+[魔数][版本][盐值][初始化向量][块大小][块#1: 数据+校验][块#2: 数据+校验]...
 
 ```
-Operations:
-  -e, --encrypt     Encrypt a file
-  -d, --decrypt     Decrypt a file
 
-Options:
-  -o, --output      Set output file name
-  -p, --password    Set password (not recommended for security)
-  -q, --quiet       Skip overwrite confirmation
+### 并行处理架构
 
-Others:
-  -v, --version     Show version information
-```
+DEC!通过智能并行化实现卓越性能：
 
-### Examples
+- **自适应线程**：自动检测 CPU 核心数
 
-```bash
-# Encrypt a document
-dec -e confidential.docx
+- **基于块的处理**：将数据分割成块进行并行处理
 
-# Encrypt with custom output name
-dec --encrypt backup.tar.gz -o secure_backup.enc
+- **基于阈值的回退**：对小文件（<16KB）使用单线程处理，以最大限度地减少开销
 
-# Decrypt with explicit password
-dec --decrypt secure_file.decx --password myspecialpass --output original.tar.gz
+### 安全特性
 
-# Batch processing (bash script example)
-for file in *.txt; do
-  dec -e "$file"
-done
-```
+- **前向保密**：每次操作使用新的盐值和初始化向量 (IV)
 
-## Performance
+- **篡改检测**：GCM 验证可防止篡改攻击
 
-DEC! is designed for high-performance encryption:
+- **内存**安全性：应用与依赖 **均使用 Rust 编写**，运行时零崩溃
 
-- **Buffer Size**: 256KB chunks for optimal I/O
-- **Parallel Threshold**: Automatically switches to parallel mode for files >16KB
-- **Memory Usage**: Constant memory footprint regardless of file size
-- **CPU Utilization**: Near 100% usage on all cores during processing
+- **密码安全**：安全的密码输入方式，不会回显到终端
 
-Typical performance on modern hardware:
-- Small files (<1MB): Limited by I/O rather than CPU
-- Large files (100MB+): Fully utilizes all CPU cores
-- Very large files (1GB+): Sustained throughput of hundreds of MB/s
 
-## Comparison with Alternatives
+## 性能
 
-| Tool    | Algorithm              | Parallel | Language | Performance |
+DEC! 专为高性能加密而设计：
+
+- **缓冲区大小**：自定义 的数据块，实现最佳 I/O 性能
+
+- **并行阈值**：文件大于 16KB 时自动切换到并行模式
+
+- **内存使用**：内存占用恒定（根据 CPU核心数 与 块大小），不受文件大小影响
+
+- **AES-NI 硬件加密**：在支持 AES-NI 指令集的设备上获得最佳体验
+
+在现代硬件上的典型性能：
+
+- 小文件（<1MB）：受 I/O 限制，而非 CPU 限制
+
+- 大文件（100MB+）：充分利用所有 CPU 核心
+
+- 超大文件（1GB+）：持续吞吐量达数百 MB/s (M4 Max: 400MB/s)
+
+## 与其他方案的比较
+
+| 工具 | 算法 | 并行性 | 语言 | 性能 |
+
 |---------|------------------------|----------|----------|-------------|
-| DEC!    | AES-256-CTR + Argon2id | ✅ Yes    | Rust     | Excellent   |
-| GPG     | AES-128/256            | ❌ No     | C        | Good        |
-| OpenSSL | Various                | ❌ No     | C        | Fair        |
-| 7-Zip   | AES-256                | ❌ No     | C++      | Fair        |
 
-## Contributing
+| DEC! | AES-256-GCM + Argon2id | ✅ 是 | Rust | 优秀 |
 
-Contributions are welcome! Please follow these steps:
+| GPG | AES-128/256 | ❌ 否 | C | 良好 |
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+| OpenSSL | 多种 | ❌ 否 | C | 一般 |
 
-### Development Setup
-
-```bash
-# Run tests
-cargo test
-
-# Run with specific optimizations
-cargo test --release
-
-# Check code formatting
-cargo fmt
-
-# Run clippy for code quality checks
-cargo clippy
-```
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- [Rust Crypto](https://github.com/RustCrypto) for excellent cryptographic primitives
-- [Rayon](https://github.com/rayon-rs/rayon) for seamless parallel processing
-- [Argon2](https://github.com/P-H-C/phc-winner-argon2) for secure key derivation
-
-## Support
-
-For issues, feature requests, or questions:
-1. Check existing [issues](https://github.com/Jiafei-Queen/dec-cryptor/issues)
-2. Create a new issue with detailed information
-3. Include version information and steps to reproduce problems
+| 7-Zip | AES-256 | ❌ 否 | C++ | 一般 |

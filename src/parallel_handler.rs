@@ -1,67 +1,88 @@
-use aes::Aes256;
-use ctr::cipher::{KeyIvInit, StreamCipher, StreamCipherSeek};
-use ctr::Ctr128BE;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use rayon::prelude::*;
 
-// AES-256-CTR 类型别名
-pub type Aes256Ctr = Ctr128BE<Aes256>;
+/// 并行处理的线程数管理器
+pub struct ParallelHandler {
+    /// 当前使用的线程数
+    parts: AtomicUsize,
+    /// 最大线程数
+    max_parts: usize,
+}
 
-// 对于非常小的数据，并行处理的开销可能超过收益，直接单线程处理。
-// 这里的 16KB 是一个经验值，可以根据实际情况调整。
-const PARALLEL_THRESHOLD: usize = 16 * 1024;
+impl ParallelHandler {
+    /// 创建新的并行处理器
+    pub fn new() -> Self {
+        let max_parts = std::thread::available_parallelism()
+            .map_or(4, |n| n.get());
 
-/// 通过将缓冲区拆分为多个片段，并利用 Rayon 的并行迭代器将 AES-CTR 密钥流应用到数据上。
-///
-/// 会就地修改 `data`。此方式与单流处理产生完全相同的结果，但利用了多核 CPU 加速。
-///
-/// - key: 32 字节
-/// - iv: 16 字节
-/// - data: 需要原地转换的字节切片
-/// - stream_offset: 在整体流中的绝对字节偏移（用于文件流式处理）
-pub fn ctr_apply_in_parts(
-    key: &[u8],
-    iv: &[u8],
-    data: &mut [u8],
-    stream_offset: usize
-) -> Result<(), String> {
-    let total_len = data.len();
-    if total_len == 0 {
-        return Ok(());
+        Self {
+            parts: AtomicUsize::new(max_parts),
+            max_parts,
+        }
     }
 
-    let num_parts = crate::crypto_utils::get_parts();
-
-    if num_parts <= 1 || total_len < PARALLEL_THRESHOLD {
-        // 回退到单线程处理
-        let mut cipher = Aes256Ctr::new(key.into(), iv.into());
-        cipher.seek(stream_offset as u128);
-        cipher.apply_keystream(data);
-        return Ok(());
+    /// 获取当前使用的线程数
+    pub fn get_parts(&self) -> usize {
+        self.parts.load(Ordering::Relaxed)
     }
 
-    // 计算每个数据块的大小，使用向上取整，确保覆盖所有数据
-    let chunk_size = (total_len + num_parts - 1) / num_parts;
+    /// 设置并行处理的线程数
+    pub fn set_parts(&self, parts: usize) {
+        let parts = parts.min(self.max_parts);
+        self.parts.store(parts, Ordering::Relaxed);
+    }
 
-    // 将数据分成多个可变切片
-    let mut chunks: Vec<&mut [u8]> = data.chunks_mut(chunk_size).collect();
+    /// 根据文件大小自动调整并行度
+    pub fn auto_adjust_parts(&self, file_size: u64) {
+        // 对于小文件，使用单线程处理以减少开销
+        if file_size < 16 * 1024 { // 16KB
+            self.set_parts(1);
+        } else {
+            // 对于大文件，使用最大并行度
+            self.set_parts(self.max_parts);
+        }
+    }
+}
 
-    // 使用 Rayon 的 `par_iter` 进行并行处理
-    chunks.par_iter_mut()
-        .enumerate() // 获取块的索引，用于计算偏移量
-        .for_each(|(chunk_index, chunk)| {
-            // 为每个并行任务（线程）创建一个新的 cipher 实例。
-            // 这是必须的，因为 cipher 实例内部有状态，不能在线程间共享。
-            let mut cipher = Aes256Ctr::new(key.into(), iv.into());
+/// 全局并行处理器实例
+pub static PARALLEL_HANDLER: once_cell::sync::Lazy<ParallelHandler> =
+    once_cell::sync::Lazy::new(|| ParallelHandler::new());
 
-            // 计算当前块的偏移量
-            let offset = stream_offset + chunk_index * chunk_size;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-            // 将 cipher 定位到当前块的正确密钥流位置
-            cipher.seek(offset as u128);
+    #[test]
+    fn test_parallel_handler_creation() {
+        let handler = ParallelHandler::new();
+        assert!(handler.get_parts() >= 1);
+        assert!(handler.max_parts >= 1);
+    }
 
-            // 对当前数据块应用密钥流
-            cipher.apply_keystream(chunk);
-        });
+    #[test]
+    fn test_parallel_handler_set_parts() {
+        let handler = ParallelHandler::new();
+        let old_parts = handler.get_parts();
 
-    Ok(())
+        handler.set_parts(2);
+        assert_eq!(handler.get_parts(), 2);
+
+        // 重置回最大值
+        handler.set_parts(old_parts);
+        assert_eq!(handler.get_parts(), old_parts);
+    }
+
+    #[test]
+    fn test_parallel_handler_auto_adjust() {
+        let handler = ParallelHandler::new();
+        let max_parts = handler.max_parts;
+
+        // 小文件应该使用单线程
+        handler.auto_adjust_parts(1024);
+        assert_eq!(handler.get_parts(), 1);
+
+        // 大文件应该使用最大并行度
+        handler.auto_adjust_parts(1024 * 1024 * 1024); // 1GB
+        assert_eq!(handler.get_parts(), max_parts);
+    }
 }
