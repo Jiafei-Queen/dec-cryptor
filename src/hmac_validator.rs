@@ -29,7 +29,7 @@ impl HmacValidator {
     pub fn verify(self, stored_hmac: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
         self.mac
             .verify_slice(stored_hmac)
-            .map_err(|_| "HMAC验证失败，文件可能已被篡改或密码错误".into())
+            .map_err(|_| "HMAC verification failed, file may be tampered or password is incorrect".into())
     }
 }
 

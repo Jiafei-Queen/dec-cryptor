@@ -17,7 +17,7 @@ pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password
 
     // 检查输入文件是否存在
     if !input_path.exists() || !input_path.is_file() {
-        return Err(format!("输入文件不存在: {}", input_file_path).into());
+        return Err(format!("Input file does not exist: {}", input_file_path).into());
     }
     
     // 启动计时器

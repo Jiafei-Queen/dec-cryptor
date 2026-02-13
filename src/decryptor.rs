@@ -21,14 +21,14 @@ pub fn check_version(input_file_path: &str) -> Result<(), Box<dyn std::error::Er
     
     // 验证魔数
     if magic_number_bytes != MAGIC_NUMBER.as_bytes() {
-        return Err("无效的加密文件格式".into());
+        return Err("Invalid encrypted file format".into());
     }
-    
+
     // 读取版本字节
     let mut version = [0u8; 1];
     file.read_exact(&mut version)?;
     if version[0] != VERSION_SIGN {
-        return Err(format!("不支持的文件版本: {}", version[0]).into());
+        return Err(format!("Unsupported file version: {}", version[0]).into());
     }
     
     Ok(())
@@ -39,7 +39,7 @@ pub fn decrypt_with_mode(input_file_path: &str, output_file_path: &str, password
     let output_path = Path::new(output_file_path);
 
     if !input_path.exists() || !input_path.is_file() {
-        return Err(format!("输入文件不存在: {}", input_file_path).into());
+        return Err(format!("Input file does not exist: {}", input_file_path).into());
     }
     
     // 启动计时器
