@@ -24,7 +24,7 @@ mod tests {
         // 测试加密速度
         let start_time = std::time::Instant::now();
 
-        let encrypt_result = dec::encryptor::encrypt_with_mode(
+        let encrypt_result = dec_cryptor::encryptor::encrypt_with_mode(
             &input_path,
             &encrypted_path,
             &password
@@ -38,7 +38,7 @@ mod tests {
         // 测试解密速度
         let start_time = std::time::Instant::now();
 
-        let decrypt_result = dec::decryptor::decrypt_with_mode(
+        let decrypt_result = dec_cryptor::decryptor::decrypt_with_mode(
             &encrypted_path,
             &decrypted_path,
             &password
@@ -55,7 +55,7 @@ mod tests {
         assert_eq!(test_data, decrypted_data, "File contents don't match");
 
         // 验证版本检查
-        let version_check = dec::decryptor::check_version(&encrypted_path);
+        let version_check = dec_cryptor::decryptor::check_version(&encrypted_path);
         assert!(version_check.is_ok(), "Version check failed: {:?}", version_check.err());
 
         println!("Performance test completed successfully!");
