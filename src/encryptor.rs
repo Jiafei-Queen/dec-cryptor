@@ -4,9 +4,89 @@ use std::path::Path;
 use aes_gcm::Aes256Gcm;
 use aes_gcm::aead::{Aead, KeyInit};
 use generic_array::GenericArray;
+use rayon::prelude::*;
 use crate::crypto_utils::*;
 use crate::progress_utils::*;
 use crate::key_derivation;
+
+/// 加密单个数据块
+fn encrypt_chunk(cipher: &Aes256Gcm, iv: &[u8], chunk_index: u64, data: &[u8]) 
+    -> Result<Vec<u8>, String> {
+    let nonce = generate_nonce_for_chunk(iv, chunk_index);
+    cipher.encrypt(&nonce, data)
+        .map_err(|e| format!("Encryption failed: {}", e))
+}
+
+/// 并行加密大文件
+fn encrypt_parallel(
+    reader: &mut BufReader<File>,
+    writer: &mut BufWriter<&mut File>,
+    cipher: &Aes256Gcm,
+    iv: &[u8],
+    file_size: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut all_chunks: Vec<(u64, Vec<u8>)> = Vec::new();
+    let mut buffer = vec![0u8; CHUNK_SIZE];
+    let mut chunk_index: u64 = 0;
+
+    // 读取所有块
+    loop {
+        let bytes_read = reader.read(&mut buffer)?;
+        if bytes_read == 0 { break; }
+        
+        let data = buffer[..bytes_read].to_vec();
+        all_chunks.push((chunk_index, data));
+        chunk_index += 1;
+    }
+
+    // 并行加密所有块
+    let encrypted_chunks: Result<Vec<(u64, Vec<u8>)>, String> = all_chunks
+        .into_par_iter()
+        .map(|(idx, data)| {
+            encrypt_chunk(cipher, iv, idx, &data)
+                .map(|ciphertext| (idx, ciphertext))
+        })
+        .collect();
+
+    // 按顺序写入结果
+    for (idx, ciphertext) in encrypted_chunks? {
+        writer.write_all(&(ciphertext.len() as u32).to_le_bytes())?;
+        writer.write_all(&ciphertext)?;
+        update_progress(((idx + 1) * CHUNK_SIZE as u64).min(file_size), file_size);
+    }
+
+    Ok(())
+}
+
+/// 串行加密小文件
+fn encrypt_serial(
+    reader: &mut BufReader<File>,
+    writer: &mut BufWriter<&mut File>,
+    cipher: &Aes256Gcm,
+    iv: &[u8],
+    file_size: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut buffer = vec![0u8; CHUNK_SIZE];
+    let mut total_read: u64 = 0;
+    let mut chunk_index: u64 = 0;
+
+    loop {
+        let bytes_read = reader.read(&mut buffer)?;
+        if bytes_read == 0 { break; }
+
+        let data = &buffer[..bytes_read];
+        let ciphertext = encrypt_chunk(cipher, iv, chunk_index, data)?;
+
+        writer.write_all(&(ciphertext.len() as u32).to_le_bytes())?;
+        writer.write_all(&ciphertext)?;
+
+        total_read += bytes_read as u64;
+        chunk_index += 1;
+        update_progress(total_read, file_size);
+    }
+
+    Ok(())
+}
 
 pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password: &str) -> Result<(), Box<dyn std::error::Error>> {
     let input_path = Path::new(input_file_path);
@@ -25,10 +105,7 @@ pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password
     writer.write_all(&[VERSION_SIGN])?;
     writer.write_all(&salt)?;
     writer.write_all(&iv)?;
-
-    // 使用常量或从 Cell 获取
-    let current_chunk_size = CHUNK_SIZE.load(std::sync::atomic::Ordering::Relaxed);
-    writer.write_all(&(current_chunk_size as u32).to_le_bytes())?;
+    writer.write_all(&(CHUNK_SIZE as u32).to_le_bytes())?;
 
     let file = File::open(input_path)?;
     let mut reader = BufReader::with_capacity(BUFFER_SIZE, file);
@@ -36,31 +113,14 @@ pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password
 
     let cipher = Aes256Gcm::new(GenericArray::from_slice(&encryption_key));
 
-    let mut buffer = vec![0u8; current_chunk_size];
-    let mut total_read: u64 = 0;
-    let mut chunk_index: u64 = 0;
-
-    loop {
-        let bytes_read = reader.read(&mut buffer)?;
-        if bytes_read == 0 { break; }
-
-        let data = &buffer[..bytes_read];
-        let nonce = generate_nonce_for_chunk(&iv, chunk_index);
-
-        // 加密并附加 Tag
-        let ciphertext = cipher.encrypt(&nonce, data)
-            .map_err(|e| format!("Encryption failed: {}", e))?;
-
-        writer.write_all(&(ciphertext.len() as u32).to_le_bytes())?;
-        writer.write_all(&ciphertext)?;
-
-        total_read += bytes_read as u64;
-        chunk_index += 1;
-        update_progress(total_read, file_size);
+    // 根据文件大小选择并行或串行模式
+    if file_size > PARALLEL_THRESHOLD as u64 {
+        encrypt_parallel(&mut reader, &mut writer, &cipher, &iv, file_size)?;
+    } else {
+        encrypt_serial(&mut reader, &mut writer, &cipher, &iv, file_size)?;
     }
 
     writer.flush()?;
     println!("\u{001B}[0mENC!: Done in {:?}", start_time.elapsed());
     Ok(())
 }
-

@@ -4,10 +4,18 @@ use std::path::Path;
 use aes_gcm::Aes256Gcm;
 use aes_gcm::aead::{Aead, KeyInit};
 use generic_array::GenericArray;
+use rayon::prelude::*;
 use crate::crypto_utils::*;
 use crate::progress_utils::*;
 use crate::key_derivation;
-use rayon::prelude::*;
+
+/// 解密单个数据块
+fn decrypt_chunk(cipher: &Aes256Gcm, iv: &[u8], chunk_index: u64, ciphertext: &[u8]) 
+    -> Result<Vec<u8>, String> {
+    let nonce = generate_nonce_for_chunk(iv, chunk_index);
+    cipher.decrypt(&nonce, ciphertext)
+        .map_err(|e| format!("Block {} decryption failed (wrong password?): {}", chunk_index, e))
+}
 
 pub fn check_version(input_file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let input_path = Path::new(input_file_path);
@@ -32,6 +40,84 @@ pub fn check_version(input_file_path: &str) -> Result<(), Box<dyn std::error::Er
     Ok(())
 }
 
+/// 并行解密大文件
+fn decrypt_parallel(
+    file: &mut BufReader<File>,
+    output_file: &mut BufWriter<&mut File>,
+    cipher: &Aes256Gcm,
+    iv: &[u8],
+    file_size: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut all_chunks: Vec<(u64, Vec<u8>)> = Vec::new();
+    let mut chunk_index: u64 = 0;
+    let mut current_pos = file.stream_position()?;
+
+    // 读取所有块
+    while current_pos < file_size {
+        let mut len_buf = [0u8; 4];
+        if file.read_exact(&mut len_buf).is_err() { break; }
+        let block_len = u32::from_le_bytes(len_buf) as usize;
+
+        let mut ciphertext = vec![0u8; block_len];
+        file.read_exact(&mut ciphertext)?;
+
+        all_chunks.push((chunk_index, ciphertext));
+        current_pos += 4 + block_len as u64;
+        chunk_index += 1;
+    }
+
+    // 并行解密所有块
+    let results: Result<Vec<(u64, Vec<u8>)>, String> = all_chunks
+        .into_par_iter()
+        .map(|(idx, data)| {
+            decrypt_chunk(cipher, iv, idx, &data)
+                .map(|plaintext| (idx, plaintext))
+        })
+        .collect();
+
+    // 按顺序写入结果（保持原始顺序）
+    let mut sorted_results = results?;
+    sorted_results.sort_by_key(|(idx, _)| *idx);
+    
+    let total_chunks = sorted_results.len() as u64;
+    for (i, (_idx, plaintext)) in sorted_results.into_iter().enumerate() {
+        output_file.write_all(&plaintext)?;
+        update_progress((i as u64 + 1) * CHUNK_SIZE as u64, file_size.min(total_chunks * CHUNK_SIZE as u64));
+    }
+
+    Ok(())
+}
+
+/// 串行解密小文件
+fn decrypt_serial(
+    file: &mut BufReader<File>,
+    output_file: &mut BufWriter<&mut File>,
+    cipher: &Aes256Gcm,
+    iv: &[u8],
+    file_size: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut chunk_index: u64 = 0;
+    let mut current_pos = file.stream_position()?;
+
+    while current_pos < file_size {
+        let mut len_buf = [0u8; 4];
+        if file.read_exact(&mut len_buf).is_err() { break; }
+        let block_len = u32::from_le_bytes(len_buf) as usize;
+
+        let mut ciphertext = vec![0u8; block_len];
+        file.read_exact(&mut ciphertext)?;
+
+        let plaintext = decrypt_chunk(cipher, iv, chunk_index, &ciphertext)?;
+        output_file.write_all(&plaintext)?;
+
+        current_pos += 4 + block_len as u64;
+        chunk_index += 1;
+        update_progress(current_pos, file_size);
+    }
+
+    Ok(())
+}
+
 pub fn decrypt_with_mode(input_file_path: &str, output_path: &str, password: &str) -> Result<(), Box<dyn std::error::Error>> {
     let input_path = Path::new(input_file_path);
     let start_time = std::time::Instant::now();
@@ -49,53 +135,23 @@ pub fn decrypt_with_mode(input_file_path: &str, output_path: &str, password: &st
 
     let mut cs_buf = [0u8; 4];
     file.read_exact(&mut cs_buf)?;
-    let chunk_size = u32::from_le_bytes(cs_buf) as usize;
+    let _chunk_size = u32::from_le_bytes(cs_buf) as usize;
 
     let encryption_key = key_derivation::derive_key(password.as_bytes(), &salt)?;
     let cipher = Aes256Gcm::new(GenericArray::from_slice(&encryption_key));
 
-    let mut output_file = BufWriter::with_capacity(BUFFER_SIZE, File::create(output_path)?);
+    let mut output_file = File::create(output_path)?;
+    let mut writer = BufWriter::with_capacity(BUFFER_SIZE, &mut output_file);
     let file_size = input_path.metadata()?.len();
 
-    let mut chunk_index: u64 = 0;
-    let mut current_pos = file.stream_position()?;
-
-    // 分批处理：平衡并行度和内存压力
-    while current_pos < file_size {
-        let mut batch = Vec::new();
-        for _ in 0..64 {
-            if current_pos >= file_size { break; }
-
-            let mut len_buf = [0u8; 4];
-            if file.read_exact(&mut len_buf).is_err() { break; }
-            let block_len = u32::from_le_bytes(len_buf) as usize;
-
-            let mut ciphertext = vec![0u8; block_len];
-            file.read_exact(&mut ciphertext)?;
-
-            batch.push((chunk_index, ciphertext));
-            current_pos += 4 + block_len as u64;
-            chunk_index += 1;
-        }
-
-        // 并行解密
-        let results: Result<Vec<Vec<u8>>, String> = batch
-            .into_par_iter()
-            .map(|(idx, data)| {
-                let nonce = generate_nonce_for_chunk(&iv, idx);
-                cipher.decrypt(&nonce, data.as_slice())
-                    .map_err(|e| format!("Block {} decryption failed (wrong password?): {}", idx, e))
-            })
-            .collect();
-
-        // 顺序写入
-        for plaintext in results? {
-            output_file.write_all(&plaintext)?;
-        }
-        update_progress(current_pos, file_size);
+    // 根据文件大小选择并行或串行模式
+    if file_size > PARALLEL_THRESHOLD as u64 {
+        decrypt_parallel(&mut file, &mut writer, &cipher, &iv, file_size)?;
+    } else {
+        decrypt_serial(&mut file, &mut writer, &cipher, &iv, file_size)?;
     }
 
-    output_file.flush()?;
+    writer.flush()?;
     println!("\u{001B}[0mDEC!: Done in {:?}", start_time.elapsed());
     Ok(())
 }

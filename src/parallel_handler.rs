@@ -1,5 +1,4 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
-use rayon::prelude::*;
 
 /// 并行处理的线程数管理器
 pub struct ParallelHandler {

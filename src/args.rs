@@ -11,6 +11,7 @@ pub struct Args {
     pub password: Option<String>,
     pub quiet: bool,
 }
+
 pub fn parse_args(args: &Vec<String>) -> Result<Args, String> {
     if args.len() < 2 { return Err("arg too short".to_string()); }
 
@@ -27,36 +28,6 @@ pub fn parse_args(args: &Vec<String>) -> Result<Args, String> {
     let mut output_path: Option<String> = None;
     let mut password: Option<String> = None;
 
-    let mut iter = args[2..].iter();
-    while let Some(arg) = iter.next() {
-        match arg.as_str() {
-            "-q" | "--quiet" => quiet = true,
-            "-p" | "--password" => {
-                if password.is_some() { return Err("one password option only".to_string()); }
-                password = iter.next().cloned(); // 安全获取下一个参数
-                if password.is_none() { return Err("password missing".to_string()); }
-            }
-            "-o" | "--output" => {
-                if output_path.is_some() { return Err("one output option only".to_string()); }
-                output_path = iter.next().cloned();
-                if output_path.is_none() { return Err("output path missing".to_string()); }
-            }
-            _ => return Err(format!("unknown option: {}", arg)),
-        }
-    }
-
-    // 获取 输出文件路径
-    let input_path = args[1].clone();
-
-    // 检查 输入文件 是否存在
-    if !Path::new(&input_path).exists() {
-        return Err("no such file".to_string())
-    }
-
-    let mut quiet = false;
-    let mut output_path: Option<String> = None;
-    let mut password: Option<String> = None;
-
     if args.len() > 2 {
         let mut skip = false;
         let mut i: usize = 2;
@@ -67,7 +38,7 @@ pub fn parse_args(args: &Vec<String>) -> Result<Args, String> {
                 "-q" | "--quiet" => { quiet = true; }
 
                 "-p" | "--password" => {
-                    if password == None {
+                    if password.is_none() {
                         password = Some(args[i].clone());
                         skip = true;
                     } else {
@@ -76,7 +47,7 @@ pub fn parse_args(args: &Vec<String>) -> Result<Args, String> {
                 }
 
                 "-o" | "--output" => {
-                    if output_path == None {
+                    if output_path.is_none() {
                         output_path = Some(args[i].clone());
                         skip = true;
                     } else {
@@ -92,7 +63,7 @@ pub fn parse_args(args: &Vec<String>) -> Result<Args, String> {
     }
 
     // 当未指定 输出文件路径 时
-    if output_path == None {
+    if output_path.is_none() {
         match op {
             Op::Enc => output_path = Some(format!("{}.decx", input_path)),
             Op::Dec => {
@@ -105,10 +76,7 @@ pub fn parse_args(args: &Vec<String>) -> Result<Args, String> {
         }
     }
 
-    let output = match output_path {
-        Some(s) => s,
-        _ => unreachable!()
-    };
+    let output = output_path.unwrap();
 
     Ok(Args { op, input_path, output_path: output, password, quiet })
 }

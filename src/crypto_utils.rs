@@ -1,5 +1,4 @@
 use rand::random;
-use std::sync::atomic::AtomicUsize;
 use aes_gcm::Nonce;
 
 // 常量定义
@@ -7,16 +6,18 @@ pub const MAGIC_NUMBER: &str = "DEC!";
 pub const VERSION_SIGN: u8 = 0x03;
 pub const SALT_LENGTH: usize = 16;
 pub const IV_LENGTH: usize = 12;
-pub const CHUNK_SIZE: AtomicUsize = AtomicUsize::new(1024 * 1024);
+/// 默认块大小：1MB (用于并行处理)
+pub const CHUNK_SIZE: usize = 1024 * 1024;
+/// 并行处理阈值：16KB (小于此值使用单线程)
+pub const PARALLEL_THRESHOLD: usize = 16 * 1024;
 pub const ARGON2_ITERATIONS: u32 = 3;
 pub const ARGON2_MEMORY_KIB: u32 = 256 * 1024;
 pub const ARGON2_PARALLELISM: u32 = 2;
 pub const MASTER_KEY_LENGTH: usize = 32;
-pub const AES_GCM_KEY_LENGTH: usize = 32;
-pub const AES_GCM_TAG_LENGTH: usize = 16;
 pub const BUFFER_SIZE: usize = 256 * 1024;
 
 /// 获取 CPU 线程数
+#[allow(dead_code)]
 pub fn get_parts() -> usize {
     std::thread::available_parallelism().map_or(4, |n| n.get())
 }
@@ -85,7 +86,7 @@ mod tests {
         assert_eq!(SALT_LENGTH, 16);
         assert_eq!(IV_LENGTH, 12);
         assert_eq!(MASTER_KEY_LENGTH, 32);
-        assert_eq!(AES_GCM_KEY_LENGTH, 32);
-        assert_eq!(AES_GCM_TAG_LENGTH, 16);
+        assert_eq!(CHUNK_SIZE, 1024 * 1024);
+        assert_eq!(PARALLEL_THRESHOLD, 16 * 1024);
     }
 }
