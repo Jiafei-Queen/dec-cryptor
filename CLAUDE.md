@@ -65,6 +65,18 @@ The integration tests include a 500MB performance benchmark:
 cargo test --release -- --nocapture
 ```
 
+### Linting and Formatting
+```bash
+cargo fmt           # Format code
+cargo clippy -- -D warnings  # Lint, treat warnings as errors
+```
+
+### Running a Single Test
+```bash
+cargo test <test_name>          # Run test matching name
+cargo test --test <test_file>   # Run tests in a specific integration test file
+```
+
 ## Code Structure Guidelines
 
 1. **Cryptographic Flow**:
