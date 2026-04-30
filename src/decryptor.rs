@@ -14,7 +14,7 @@ fn decrypt_chunk(cipher: &Aes256Gcm, iv: &[u8], chunk_index: u64, ciphertext: &[
     -> Result<Vec<u8>, String> {
     let nonce = generate_nonce_for_chunk(iv, chunk_index);
     cipher.decrypt(&nonce, ciphertext)
-        .map_err(|e| format!("Block {} decryption failed (wrong password?): {}", chunk_index, e))
+        .map_err(|e| format!("Block #{} decryption failed (wrong password?): {}", chunk_index, e))
 }
 
 pub fn check_version(input_file_path: &str) -> Result<(), Box<dyn std::error::Error>> {
