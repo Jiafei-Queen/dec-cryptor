@@ -1,6 +1,5 @@
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::io::Write;
-use std::time::Instant;
 
 // ANSI 颜色代码
 const RESET: &str = "\u{001B}[0m";
@@ -110,27 +109,4 @@ pub fn update_progress(total_read: u64, file_size: u64) {
     if progress == 100 {
         println!();
     }
-}
-
-/// 格式化持续时间显示
-#[allow(dead_code)]
-pub fn format_duration(duration: std::time::Duration) -> String {
-    let total_secs = duration.as_secs();
-    let hours = total_secs / 3600;
-    let minutes = (total_secs % 3600) / 60;
-    let seconds = total_secs % 60;
-    let millis = duration.subsec_millis();
-
-    if hours > 0 {
-        format!("{}h {}m {}s", hours, minutes, seconds)
-    } else if minutes > 0 {
-        format!("{}m {}s", minutes, seconds)
-    } else {
-        format!("{}.{:03}s", seconds, millis)
-    }
-}
-
-/// 获取开始时间的便捷函数
-pub fn start_timer() -> Instant {
-    Instant::now()
 }

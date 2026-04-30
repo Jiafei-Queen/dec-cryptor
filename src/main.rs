@@ -3,7 +3,6 @@ mod encryptor;
 mod crypto_utils;
 mod progress_utils;
 mod key_derivation;
-mod parallel_handler;
 mod args;
 
 use args::*;
