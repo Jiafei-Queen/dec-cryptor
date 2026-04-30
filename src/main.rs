@@ -2,9 +2,7 @@ mod decryptor;
 mod encryptor;
 mod crypto_utils;
 mod progress_utils;
-mod hmac_validator;
 mod key_derivation;
-mod parallel_handler;
 mod args;
 
 use args::*;
@@ -66,6 +64,9 @@ fn main() {
         eprintln!("---\n{}{}{}{}", PREFIX, RED, e, RESET);
         std::process::exit(1);
     });
+
+    // 设置静音模式
+    progress_utils::set_quiet_mode(args.quiet);
 
     // 提取参数
     let op = args.op;

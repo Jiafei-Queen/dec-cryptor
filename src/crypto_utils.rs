@@ -1,19 +1,23 @@
 use rand::random;
+use aes_gcm::Nonce;
 
 // 常量定义
 pub const MAGIC_NUMBER: &str = "DEC!";
-pub const VERSION_SIGN: u8 = 0x02;
+pub const VERSION_SIGN: u8 = 0x03;
 pub const SALT_LENGTH: usize = 16;
-pub const IV_LENGTH: usize = 16;
+pub const IV_LENGTH: usize = 12;
+/// 默认块大小：1MB (用于并行处理)
+pub const CHUNK_SIZE: usize = 1024 * 1024;
+/// 并行处理阈值：16KB (小于此值使用单线程)
+pub const PARALLEL_THRESHOLD: usize = 16 * 1024;
 pub const ARGON2_ITERATIONS: u32 = 3;
-pub const ARGON2_MEMORY_KIB: u32 = 65536;
-pub const ARGON2_PARALLELISM: u32 = 4;
+pub const ARGON2_MEMORY_KIB: u32 = 256 * 1024;
+pub const ARGON2_PARALLELISM: u32 = 2;
 pub const MASTER_KEY_LENGTH: usize = 32;
-pub const ENCRYPTION_KEY_LENGTH: usize = 32;
-pub const HMAC_KEY_LENGTH: usize = 32;
 pub const BUFFER_SIZE: usize = 256 * 1024;
 
 /// 获取 CPU 线程数
+#[allow(dead_code)]
 pub fn get_parts() -> usize {
     std::thread::available_parallelism().map_or(4, |n| n.get())
 }
@@ -28,6 +32,18 @@ pub fn generate_salt() -> Vec<u8> {
 pub fn generate_iv() -> Vec<u8> {
     let iv: [u8; IV_LENGTH] = random();
     iv.to_vec()
+}
+
+pub fn generate_nonce_for_chunk(base_iv: &[u8], index: u64) -> Nonce<generic_array::typenum::U12> {
+    let mut nonce_bytes = [0u8; 12];
+    nonce_bytes.copy_from_slice(&base_iv[..12]);
+    let index_bytes = index.to_le_bytes();
+    // 修改后4字节
+    for i in 0..4 {
+        nonce_bytes[8 + i] ^= index_bytes[i];
+    }
+    // 修复点：显式转换回 Nonce 类型
+    *Nonce::<generic_array::typenum::U12>::from_slice(&nonce_bytes)
 }
 
 #[cfg(test)]
@@ -66,11 +82,11 @@ mod tests {
     #[test]
     fn test_constants() {
         assert_eq!(MAGIC_NUMBER, "DEC!");
-        assert_eq!(VERSION_SIGN, 0x02);
+        assert_eq!(VERSION_SIGN, 0x03);
         assert_eq!(SALT_LENGTH, 16);
-        assert_eq!(IV_LENGTH, 16);
+        assert_eq!(IV_LENGTH, 12);
         assert_eq!(MASTER_KEY_LENGTH, 32);
-        assert_eq!(ENCRYPTION_KEY_LENGTH, 32);
-        assert_eq!(HMAC_KEY_LENGTH, 32);
+        assert_eq!(CHUNK_SIZE, 1024 * 1024);
+        assert_eq!(PARALLEL_THRESHOLD, 16 * 1024);
     }
 }

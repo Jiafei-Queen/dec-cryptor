@@ -1,209 +1,79 @@
-# DEC! - High-Performance File Encryption Tool
-
+# DEC! – High‑Performance File Encryption Tool
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Rust](https://img.shields.io/badge/rust-2024-orange.svg)](https://www.rust-lang.org/)
+[![Rust 2024](https://img.shields.io/badge/rust-2024-orange.svg)](https://www.rust-lang.org/)
 
-DEC! is a high-performance file encryption tool written in Rust that provides strong security with excellent performance through parallel processing capabilities.
+DEC! is a high‑performance file encryption utility written in Rust. It leverages parallel processing to deliver strong security without sacrificing speed.
 
 ## Features
 
-- 🔒 **Military-Grade Encryption**: AES-256-CTR with Argon2id key derivation
-- ⚡ **Parallel Processing**: Utilizes all CPU cores for maximum performance
-- 🛡️ **Integrity Protection**: HMAC-SHA256 validation to detect tampering
-- 📈 **Real-time Progress Tracking**: Visual progress bar with throughput metrics
-- 💾 **Memory Efficient**: Streams files with configurable buffer sizes
-- 🖥️ **Cross-platform**: Works on Windows, macOS, and Linux
+- 🔒 **Military‑grade encryption** – Argon2id key derivation + AES‑256‑GCM
+- ⚡ **Parallel processing** – Utilises all CPU cores for peak performance
+- 📈 **Real‑time progress tracking** – Visual progress bars with throughput metrics
+- 💾 **Memory‑efficient** – Configurable buffer sizes for streaming I/O
+- 🖥️ **Cross‑platform** – Works on Windows, macOS, and Linux
 
 ## Technical Details
 
-### Cryptographic Design
+### Encryption Design
 
-DEC! implements a robust cryptographic architecture:
+DEC! implements a robust encryption pipeline:
 
-1. **Key Derivation**:
-   - Uses Argon2id (winner of the Password Hashing Competition) with:
-     - 65,536 KiB memory usage
-     - 3 iterations
-     - 4-way parallelism
-   - HKDF-SHA256 for expanding the master key into separate encryption and HMAC keys
+1. **Key Derivation**
+    - Argon2id (winner of the Password Hashing Competition)
+    - Parameters: 256 MB memory, 3 iterations, 2‑way parallelism
 
-2. **Encryption**:
-   - AES-256 in CTR mode (no padding required)
-   - Unique salt (16 bytes) and IV (16 bytes) for each operation
-   - Authenticated encryption with HMAC-SHA256
+2. **Encryption**
+    - AES‑GCM operates on individual blocks
+    - Each operation uses a unique 16‑byte salt
+    - Nonce derived from `(base_iv + chunk_index)` to guarantee uniqueness
+    - Every block has its own authentication tag (ensures tamper detection and a better user experience when the wrong password is supplied)
 
-3. **File Format**:
-   ```
-   [Magic Number][Version][Salt][IV][Encrypted Data][HMAC]
+3. **File Format**
+   ```text
+   [MAGIC][VERSION][SALT][INITIAL_VECTOR][BLOCK_SIZE][BLOCK#1: DATA+TAG][BLOCK#2: DATA+TAG]...
    ```
 
 ### Parallel Processing Architecture
 
-DEC! achieves remarkable performance through intelligent parallelization:
+DEC! achieves excellent performance with intelligent parallelism:
 
-- **Adaptive Threading**: Automatically detects CPU core count
-- **Chunk-based Processing**: Splits data into chunks for parallel processing
-- **CTR Mode Compatibility**: Uses stream cipher seeking to maintain cryptographic consistency
-- **Threshold-based Fallback**: Uses single-threaded processing for small files (<16KB) to minimize overhead
-
-Test Environment:
-- Device: MacBook Pro (M4 Max) 
-- Test Command: ` cargo test --release --test integration_test -- --nocapture`
-
-Performance benchmarks on a 500MB file:
-- Encryption: ~320 MB/s
-- Decryption: ~325 MB/s
-- Utilizes all available CPU cores efficiently
+- **Adaptive threads** – Auto‑detects the number of CPU cores
+- **Chunk‑based processing** – Splits data into blocks for concurrent handling
+- **Threshold fallback** – Files smaller than 16 KB are processed single‑threaded to minimise overhead
 
 ### Security Features
 
-- **Forward Secrecy**: New salt and IV for every operation
-- **Tamper Detection**: HMAC validation prevents modification attacks
-- **Memory Safety**: Written in Rust with zero runtime crashes
-- **Password Security**: Secure password input that doesn't echo to terminal
-
-## Installation
-
-### Prerequisites
-
-- Rust 1.65 or higher
-
-### Building from Source
-
-```bash
-# Clone the repository
-git clone https://github.com/Jiafei-Queen/dec-cryptor.git
-cd dec-cryptor
-
-# Build in release mode (recommended for performance)
-cargo build --release
-
-# The executable will be in target/release/dec
-```
-
-### Installing via Cargo
-
-```bash
-cargo install dec-cryptor
-```
-
-## Usage
-
-### Basic Commands
-
-```bash
-# Encrypt a file
-dec -e input_file.txt
-
-# Decrypt a file
-dec -d encrypted_file.decx
-
-# Specify output file name
-dec -e input.tar -o encrypted_archive
-
-# Specify password (otherwise prompted)
-dec -d secret.doc.decx -p mysecretpassword
-
-# Quiet mode (skip overwrite confirmation)
-dec -e confidential.pdf -q
-```
-
-### Command Line Options
-
-```
-Operations:
-  -e, --encrypt     Encrypt a file
-  -d, --decrypt     Decrypt a file
-
-Options:
-  -o, --output      Set output file name
-  -p, --password    Set password (not recommended for security)
-  -q, --quiet       Skip overwrite confirmation
-
-Others:
-  -v, --version     Show version information
-```
-
-### Examples
-
-```bash
-# Encrypt a document
-dec -e confidential.docx
-
-# Encrypt with custom output name
-dec --encrypt backup.tar.gz -o secure_backup.enc
-
-# Decrypt with explicit password
-dec --decrypt secure_file.decx --password myspecialpass --output original.tar.gz
-
-# Batch processing (bash script example)
-for file in *.txt; do
-  dec -e "$file"
-done
-```
+- **Forward secrecy** – New salt and IV for every operation
+- **Tamper detection** – GCM authentication tag protects against modifications
+- **Memory safety** – Entire codebase and dependencies are written in Rust, ensuring no crashes
+- **Secure password input** – Passwords are entered without echoing to the terminal
 
 ## Performance
 
-DEC! is designed for high-performance encryption:
+DEC! is tuned for high throughput:
 
-- **Buffer Size**: 256KB chunks for optimal I/O
-- **Parallel Threshold**: Automatically switches to parallel mode for files >16KB
-- **Memory Usage**: Constant memory footprint regardless of file size
-- **CPU Utilization**: Near 100% usage on all cores during processing
+- **Buffer size** – Customisable block size for optimal I/O performance
+- **Parallel threshold** – Switches to parallel mode for files larger than 16 KB
+- **Memory usage** – Constant, scaled only by the number of CPU cores and block size; independent of file size
+- **AES‑NI acceleration** – Leverages hardware AES‑NI instructions when available
 
-Typical performance on modern hardware:
-- Small files (<1MB): Limited by I/O rather than CPU
-- Large files (100MB+): Fully utilizes all CPU cores
-- Very large files (1GB+): Sustained throughput of hundreds of MB/s
+Typical benchmarks on modern hardware:
 
-## Comparison with Alternatives
+| Hardware | Encryption | Decryption |
+| -------- |----------|----------|
+| M4 Max MBP | 843 MB/s | 882 MB/s |
+| i5-10400F + nvme | 575 MB/s | 585MB/s  |
 
-| Tool    | Algorithm              | Parallel | Language | Performance |
-|---------|------------------------|----------|----------|-------------|
-| DEC!    | AES-256-CTR + Argon2id | ✅ Yes    | Rust     | Excellent   |
-| GPG     | AES-128/256            | ❌ No     | C        | Good        |
-| OpenSSL | Various                | ❌ No     | C        | Fair        |
-| 7-Zip   | AES-256                | ❌ No     | C++      | Fair        |
 
-## Contributing
+## Comparison With Other Tools
 
-Contributions are welcome! Please follow these steps:
+| Tool | Algorithm | Parallelism | Language | Performance |
+|------|-----------|-------------|----------|-------------|
+| **DEC!** | AES‑256‑GCM + Argon2id | ✅ | Rust | Excellent |
+| GPG | AES‑128/256 | ❌ | C | Good |
+| OpenSSL | Multiple | ❌ | C | Average |
+| 7‑Zip | AES‑256 | ❌ | C++ | Average |
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+--- 
 
-### Development Setup
-
-```bash
-# Run tests
-cargo test
-
-# Run with specific optimizations
-cargo test --release
-
-# Check code formatting
-cargo fmt
-
-# Run clippy for code quality checks
-cargo clippy
-```
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- [Rust Crypto](https://github.com/RustCrypto) for excellent cryptographic primitives
-- [Rayon](https://github.com/rayon-rs/rayon) for seamless parallel processing
-- [Argon2](https://github.com/P-H-C/phc-winner-argon2) for secure key derivation
-
-## Support
-
-For issues, feature requests, or questions:
-1. Check existing [issues](https://github.com/Jiafei-Queen/dec-cryptor/issues)
-2. Create a new issue with detailed information
-3. Include version information and steps to reproduce problems
+Feel free to clone, build, and experiment! 🚀
