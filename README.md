@@ -20,7 +20,7 @@ DEC! implements a robust encryption pipeline:
 
 1. **Key Derivation**
     - Argon2id (winner of the Password Hashing Competition)
-    - Parameters: 256 MB memory, 3 iterations, 2‑way parallelism
+    - Parameters: 256 MiB memory, 3 iterations, 2‑way parallelism
 
 2. **Encryption**
     - AES‑GCM operates on individual blocks
@@ -61,8 +61,8 @@ Typical benchmarks on modern hardware:
 
 | Hardware | Encryption | Decryption |
 | -------- |----------|----------|
-| M4 Max MBP | 843 MB/s | 882 MB/s |
-| i5-10400F + nvme | 575 MB/s | 585MB/s  |
+| M4 Max MiBP | 843 MiB/s | 882 MiB/s |
+| i5-10400F + nvme | 575 MiB/s | 585MiB/s  |
 
 
 ## Comparison With Other Tools
