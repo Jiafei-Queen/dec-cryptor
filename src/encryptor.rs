@@ -92,7 +92,7 @@ pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password
     let input_path = Path::new(input_file_path);
     let output_path = Path::new(output_file_path);
 
-    let start_time = std::time::Instant::now();
+    reset_progress();
     let salt = generate_salt();
     let iv = generate_iv();
     let encryption_key = key_derivation::derive_key(password.as_bytes(), &salt)?;
@@ -121,6 +121,5 @@ pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password
     }
 
     writer.flush()?;
-    println!("\u{001B}[0mENC!: Done in {:?}", start_time.elapsed());
     Ok(())
 }

@@ -65,9 +65,6 @@ fn main() {
         std::process::exit(1);
     });
 
-    // 设置静音模式
-    progress_utils::set_quiet_mode(args.quiet);
-
     // 提取参数
     let op = args.op;
     let input_path = args.input_path;

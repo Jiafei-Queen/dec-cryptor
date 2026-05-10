@@ -120,7 +120,7 @@ fn decrypt_serial(
 
 pub fn decrypt_with_mode(input_file_path: &str, output_path: &str, password: &str) -> Result<(), Box<dyn std::error::Error>> {
     let input_path = Path::new(input_file_path);
-    let start_time = std::time::Instant::now();
+    reset_progress();
     let mut file = BufReader::new(File::open(input_path)?);
 
     // 1. 解析 Header
@@ -152,6 +152,5 @@ pub fn decrypt_with_mode(input_file_path: &str, output_path: &str, password: &st
     }
 
     writer.flush()?;
-    println!("\u{001B}[0mDEC!: Done in {:?}", start_time.elapsed());
     Ok(())
 }

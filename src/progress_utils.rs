@@ -1,23 +1,15 @@
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::io::Write;
 
 // ANSI 颜色代码
 const RESET: &str = "\u{001B}[0m";
+const DIM: &str = "\u{001B}[2m";
+const CYAN: &str = "\u{001B}[96m";
 const BLUE: &str = "\u{001B}[94m";
+const GREEN: &str = "\u{001B}[92m";
+const BOLD: &str = "\u{001B}[1m";
 const PROGRESS_BAR_LENGTH: usize = 40;
 static LAST_PROGRESS: AtomicI32 = AtomicI32::new(-1);
-/// 全局静音标志
-static QUIET_MODE: AtomicBool = AtomicBool::new(false);
-
-/// 设置静音模式
-pub fn set_quiet_mode(quiet: bool) {
-    QUIET_MODE.store(quiet, Ordering::Relaxed);
-}
-
-/// 检查是否处于静音模式
-pub fn is_quiet_mode() -> bool {
-    QUIET_MODE.load(Ordering::Relaxed)
-}
 
 /// 重置进度跟踪器（用于新任务）
 #[allow(dead_code)]
@@ -27,11 +19,6 @@ pub fn reset_progress() {
 
 /// 更新并显示带时间的进度
 pub fn update_progress(total_read: u64, file_size: u64) {
-    // 静音模式下跳过进度更新
-    if is_quiet_mode() {
-        return;
-    }
-
     // 更新进度
     let mut progress = (total_read * 100 / file_size) as i32;
 
@@ -76,32 +63,38 @@ pub fn update_progress(total_read: u64, file_size: u64) {
     // 计算进度条长度
     let filled_length = ((progress as f64 / 100.0) * PROGRESS_BAR_LENGTH as f64) as usize;
 
-    // 构建进度条
-    let mut progress_bar = String::with_capacity(100); // 预分配容量
+    // 构建更顺滑的进度条
+    let mut progress_bar = String::with_capacity(256);
+    progress_bar.push_str(BOLD);
     progress_bar.push('[');
 
-    for i in 1..PROGRESS_BAR_LENGTH {
+    for i in 0..PROGRESS_BAR_LENGTH {
         if i < filled_length {
-            progress_bar.push_str(&format!("{}#", BLUE));
-        } else if i == filled_length {
-            if progress < 100 {
-                progress_bar.push_str(&format!("{}>", BLUE));
-            } else {
-                progress_bar.push_str(&format!("{}#{}", BLUE, RESET));
-            }
+            progress_bar.push_str(GREEN);
+            progress_bar.push('█');
+        } else if i == filled_length && progress < 100 {
+            progress_bar.push_str(CYAN);
+            progress_bar.push('▓');
         } else {
-            progress_bar.push_str(&format!("{}-", RESET));
+            progress_bar.push_str(DIM);
+            progress_bar.push('░');
         }
     }
 
-    progress_bar.push_str(&format!("] {}%", progress));
+    progress_bar.push_str(RESET);
+    progress_bar.push_str(BOLD);
+    progress_bar.push(']');
+    progress_bar.push_str(RESET);
 
     // 输出进度（使用回车而不是换行，使进度在同一行更新）
-    print!("\r{}", progress_bar);
+    print!("\r{}{}DEC!{} {}{}{:>3}%{}",
+        BOLD, BLUE, RESET, progress_bar, GREEN, progress, RESET);
     if progress < 98 {
-        print!("\t {:.2} : {:.2} {}", read_units, total_units, unit);
+        print!("  {}{:.2}{} / {}{:.2} {}{}",
+            CYAN, read_units, RESET, BOLD, total_units, unit, RESET);
     } else {
-        print!("\t {:.2} : {:.2} {}", total_units, total_units, unit);
+        print!("  {}{:.2}{} / {}{:.2} {}{}",
+            CYAN, total_units, RESET, BOLD, total_units, unit, RESET);
     }
     std::io::stdout().flush().unwrap();
 
