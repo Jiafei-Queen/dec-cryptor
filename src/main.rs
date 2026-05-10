@@ -9,6 +9,7 @@ use args::*;
 use rpassword::read_password;
 use std::env;
 use std::io;
+use std::io::IsTerminal;
 use std::io::Write;
 use std::path::Path;
 
@@ -16,7 +17,7 @@ fn print_usage() {
     println!("Usage: dec [OPERATION] [INPUT_FILE] [OPTIONS]");
 
     println!("Example:");
-    println!("  # Encrypt `input_file.txt` and outputs `output_file.txt.decx`");
+    println!("  # Encrypt `input_file.txt` and outputs `input_file.txt.decx`");
     println!("  dec -e input_file.txt\n");
 
     println!("  # Encrypt `input.tar` (outputs `dec_file`)");
@@ -24,6 +25,9 @@ fn print_usage() {
 
     println!("  # Decrypt `example.tar.decx` (outputs `example.tar`)");
     println!("  dec -d example.tar.decx");
+    println!();
+    println!("  # Encrypt from stdin to stdout");
+    println!("  cat plain.txt | dec -e - -p secret --stdout > plain.txt.decx");
 
     println!("Operations:");
     println!("  -e, --encrypt\t\t\tencrypt a file");
@@ -31,6 +35,7 @@ fn print_usage() {
 
     println!("Options:");
     println!("  -o, --output\t\t\tset output file name");
+    println!("  -c, --stdout\t\t\twrite output stream to stdout");
     println!("  -p, --password\t\tset password");
     println!("  -q, --quiet\t\t\tno check");
 
@@ -70,25 +75,38 @@ fn main() {
     let input_path = args.input_path;
     let output_path = args.output_path.clone();
     let password = args.password;
+    let stdout_output = args.stdout;
+
+    if stdout_output && io::stdout().is_terminal() {
+        eprintln!(
+            "{}{}refusing to write stream data to the terminal; redirect or pipe stdout{}",
+            PREFIX, RED, RESET
+        );
+        std::process::exit(1);
+    }
 
     // 检查输出文件是否已存在
-    if !args.quiet && Path::new(&output_path).exists() {
-        print!("> output file already {}EXISTS{}, {}{}overwrite{}? [y/n]: ", BOLD, RESET, BOLD, RED, RESET);
-        io::stdout().flush().unwrap();
+    if !stdout_output && !args.quiet && Path::new(&output_path).exists() {
+        eprint!("> output file already {}EXISTS{}, {}{}overwrite{}? [y/n]: ", BOLD, RESET, BOLD, RED, RESET);
+        io::stderr().flush().unwrap();
         if !confirm() { return; }
     }
 
     // 分配参数，进行下一步处理
-    match op {
+    let result = match op {
         Op::Enc => handle_encrypt(input_path, output_path, password),
         Op::Dec => handle_decrypt(input_path, output_path, password),
+    };
+
+    if result.is_err() {
+        std::process::exit(1);
     }
 }
 
 /*
  * 接手加密
  */
-fn handle_encrypt(input_path: String, output_path: String, mut password: Option<String>) {
+fn handle_encrypt(input_path: String, output_path: String, mut password: Option<String>) -> Result<(), ()> {
     // `confirmed` 用来区分 参数 和 输入
     let mut confirmed = true;
     if password == None {
@@ -104,19 +122,22 @@ fn handle_encrypt(input_path: String, output_path: String, mut password: Option<
 
     if !confirmed && !confirm_password(&password) {
         eprintln!("{}{}passwords mismatch{}", PREFIX, RED, RESET);
-        return;
+        return Err(());
     }
 
     match encryptor::encrypt_with_mode(&input_path, &output_path, &password) {
-        Ok(_) => {},
-        Err(e) => eprintln!("[{}ERROR{}]: encryption failed: {}{}{}", RED, RESET, e, RED, RESET),
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!("[{}ERROR{}]: encryption failed: {}{}{}", RED, RESET, e, RED, RESET);
+            Err(())
+        }
     }
 }
 
 /*
  * 接手解密
  */
-fn handle_decrypt(input_path: String, output_path: String, mut password: Option<String>) {
+fn handle_decrypt(input_path: String, output_path: String, mut password: Option<String>) -> Result<(), ()> {
     // 获取密码
     if password == None {
         password = Some(get_password());
@@ -129,17 +150,22 @@ fn handle_decrypt(input_path: String, output_path: String, mut password: Option<
     };
 
     // 检查文件版本
-    match decryptor::check_version(&input_path) {
-        Ok(_) => {},
-        Err(e) => {
-            eprintln!("[{}ERROR{}]: version mismatch: {}{}{}", RED, RESET, e, RED, RESET);
-            return;
+    if input_path != "-" {
+        match decryptor::check_version(&input_path) {
+            Ok(_) => {},
+            Err(e) => {
+                eprintln!("[{}ERROR{}]: version mismatch: {}{}{}", RED, RESET, e, RED, RESET);
+                return Err(());
+            }
         }
     }
     
     match decryptor::decrypt_with_mode(&input_path, &output_path, &password) {
-        Ok(_) => {},
-        Err(e) => eprintln!("[{}ERROR{}]: decryption failed: {}{}{}", RED, RESET, e, RED, RESET),
+        Ok(_) => Ok(()),
+        Err(e) => {
+            eprintln!("[{}ERROR{}]: decryption failed: {}{}{}", RED, RESET, e, RED, RESET);
+            Err(())
+        }
     }
 }
 
@@ -147,15 +173,15 @@ fn handle_decrypt(input_path: String, output_path: String, mut password: Option<
  * 以下都是辅助函数
  */
 fn get_password() -> String {
-    print!("> {}password:{} ", BOLD, RESET);
-    io::stdout().flush().unwrap();
+    eprint!("> {}password:{} ", BOLD, RESET);
+    io::stderr().flush().unwrap();
     let password = read_password().unwrap();
     password
 }
 
 fn confirm_password(password: &String) -> bool {
-    print!("> {}confirm password:{} ", BOLD, RESET);
-    io::stdout().flush().unwrap();
+    eprint!("> {}confirm password:{} ", BOLD, RESET);
+    io::stderr().flush().unwrap();
     let local_password = read_password().unwrap();
     password == &local_password
 }
@@ -169,8 +195,8 @@ fn confirm() -> bool {
         } else if input.trim() == "n" {
             return false;
         } else {
-            print!("> [y/n]!!!: ");
-            io::stdout().flush().unwrap();
+            eprint!("> [y/n]!!!: ");
+            io::stderr().flush().unwrap();
         }
     }
 }

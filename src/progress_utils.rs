@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering};
 use std::io::Write;
 
 // ANSI 颜色代码
@@ -9,12 +9,60 @@ const BLUE: &str = "\u{001B}[94m";
 const GREEN: &str = "\u{001B}[92m";
 const BOLD: &str = "\u{001B}[1m";
 const PROGRESS_BAR_LENGTH: usize = 40;
+const SPINNER_FRAMES: [&str; 4] = ["⠋", "⠙", "⠹", "⠸"];
 static LAST_PROGRESS: AtomicI32 = AtomicI32::new(-1);
+static SPINNER_INDEX: AtomicUsize = AtomicUsize::new(0);
+static PROGRESS_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+fn format_units(bytes: u64) -> (f64, &'static str) {
+    const KB_FACTOR: f64 = 1024.0;
+    const MB_FACTOR: f64 = 1024.0 * 1024.0;
+    const GB_FACTOR: f64 = 1024.0 * 1024.0 * 1024.0;
+
+    if bytes as f64 >= GB_FACTOR {
+        (bytes as f64 / GB_FACTOR, "GB")
+    } else if bytes as f64 >= MB_FACTOR {
+        (bytes as f64 / MB_FACTOR, "MB")
+    } else if bytes as f64 >= KB_FACTOR {
+        (bytes as f64 / KB_FACTOR, "KB")
+    } else {
+        (bytes as f64, "B")
+    }
+}
 
 /// 重置进度跟踪器（用于新任务）
 #[allow(dead_code)]
 pub fn reset_progress() {
     LAST_PROGRESS.store(-1, Ordering::Relaxed);
+    SPINNER_INDEX.store(0, Ordering::Relaxed);
+    PROGRESS_ACTIVE.store(false, Ordering::Relaxed);
+}
+
+pub fn finish_progress_line() {
+    if PROGRESS_ACTIVE.swap(false, Ordering::Relaxed) {
+        eprintln!();
+    }
+}
+
+pub fn clear_progress_line() {
+    if PROGRESS_ACTIVE.swap(false, Ordering::Relaxed) {
+        eprint!("\r\x1b[2K");
+        std::io::stderr().flush().unwrap();
+    }
+}
+
+pub fn update_stream_progress(total_read: u64) {
+    let frame = SPINNER_FRAMES[SPINNER_INDEX.fetch_add(1, Ordering::Relaxed) % SPINNER_FRAMES.len()];
+    let (read_units, unit) = format_units(total_read);
+
+    PROGRESS_ACTIVE.store(true, Ordering::Relaxed);
+    eprint!(
+        "\r{}{}DEC!{} {}{}{}{}  {}{:.2} {}{}",
+        BOLD, BLUE, RESET,
+        CYAN, frame, RESET, DIM,
+        CYAN, read_units, unit, RESET
+    );
+    std::io::stderr().flush().unwrap();
 }
 
 /// 更新并显示带时间的进度
@@ -32,29 +80,8 @@ pub fn update_progress(total_read: u64, file_size: u64) {
         return;
     }
 
-    // 预计算单位转换因子以提高性能
-    const KB_FACTOR: f64 = 1024.0;
-    const MB_FACTOR: f64 = 1024.0 * 1024.0;
-    const GB_FACTOR: f64 = 1024.0 * 1024.0 * 1024.0;
-
-    let mut unit = "B";
-    let mut total_units = file_size as f64;
-    let mut read_units = total_read as f64;
-
-    // 获得单位
-    if file_size as f64 >= GB_FACTOR {
-        total_units = file_size as f64 / GB_FACTOR;
-        read_units = total_read as f64 / GB_FACTOR;
-        unit = "GB";
-    } else if file_size as f64 >= MB_FACTOR {
-        total_units = file_size as f64 / MB_FACTOR;
-        read_units = total_read as f64 / MB_FACTOR;
-        unit = "MB";
-    } else if file_size as f64 >= KB_FACTOR {
-        total_units = file_size as f64 / KB_FACTOR;
-        read_units = total_read as f64 / KB_FACTOR;
-        unit = "KB";
-    }
+    let (total_units, unit) = format_units(file_size);
+    let (read_units, _) = format_units(total_read);
 
     // 限制进度在 0-100 之间
     progress = progress.min(100).max(0);
@@ -87,19 +114,20 @@ pub fn update_progress(total_read: u64, file_size: u64) {
     progress_bar.push_str(RESET);
 
     // 输出进度（使用回车而不是换行，使进度在同一行更新）
-    print!("\r{}{}DEC!{} {}{}{:>3}%{}",
+    PROGRESS_ACTIVE.store(true, Ordering::Relaxed);
+    eprint!("\r{}{}DEC!{} {}{}{:>3}%{}",
         BOLD, BLUE, RESET, progress_bar, GREEN, progress, RESET);
     if progress < 98 {
-        print!("  {}{:.2}{} / {}{:.2} {}{}",
+        eprint!("  {}{:.2}{} / {}{:.2} {}{}",
             CYAN, read_units, RESET, BOLD, total_units, unit, RESET);
     } else {
-        print!("  {}{:.2}{} / {}{:.2} {}{}",
+        eprint!("  {}{:.2}{} / {}{:.2} {}{}",
             CYAN, total_units, RESET, BOLD, total_units, unit, RESET);
     }
-    std::io::stdout().flush().unwrap();
+    std::io::stderr().flush().unwrap();
 
     // 100% 时添加一个换行
     if progress == 100 {
-        println!();
+        finish_progress_line();
     }
 }

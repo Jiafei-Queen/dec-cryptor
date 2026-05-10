@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{Read, Write, BufReader, BufWriter};
+use std::io::{Read, Write, BufReader, BufWriter, Cursor};
 use std::path::Path;
 use aes_gcm::Aes256Gcm;
 use aes_gcm::aead::{Aead, KeyInit};
@@ -19,8 +19,8 @@ fn encrypt_chunk(cipher: &Aes256Gcm, iv: &[u8], chunk_index: u64, data: &[u8])
 
 /// 并行加密大文件
 fn encrypt_parallel(
-    reader: &mut BufReader<File>,
-    writer: &mut BufWriter<&mut File>,
+    reader: &mut dyn Read,
+    writer: &mut dyn Write,
     cipher: &Aes256Gcm,
     iv: &[u8],
     file_size: u64,
@@ -60,8 +60,8 @@ fn encrypt_parallel(
 
 /// 串行加密小文件
 fn encrypt_serial(
-    reader: &mut BufReader<File>,
-    writer: &mut BufWriter<&mut File>,
+    reader: &mut dyn Read,
+    writer: &mut dyn Write,
     cipher: &Aes256Gcm,
     iv: &[u8],
     file_size: u64,
@@ -88,17 +88,37 @@ fn encrypt_serial(
     Ok(())
 }
 
-pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let input_path = Path::new(input_file_path);
-    let output_path = Path::new(output_file_path);
+fn read_stdin_with_progress() -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let mut input = Vec::new();
+    let mut stdin = std::io::stdin();
+    let mut buffer = vec![0u8; BUFFER_SIZE];
+    let mut total_read = 0u64;
 
+    loop {
+        let bytes_read = stdin.read(&mut buffer)?;
+        if bytes_read == 0 { break; }
+
+        input.extend_from_slice(&buffer[..bytes_read]);
+        total_read += bytes_read as u64;
+        update_stream_progress(total_read);
+    }
+
+    clear_progress_line();
+    Ok(input)
+}
+
+pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password: &str) -> Result<(), Box<dyn std::error::Error>> {
     reset_progress();
     let salt = generate_salt();
     let iv = generate_iv();
     let encryption_key = key_derivation::derive_key(password.as_bytes(), &salt)?;
 
-    let mut output_file = File::create(output_path)?;
-    let mut writer = BufWriter::with_capacity(BUFFER_SIZE, &mut output_file);
+    let mut writer: Box<dyn Write> = if output_file_path == "-" {
+        Box::new(BufWriter::with_capacity(BUFFER_SIZE, std::io::stdout()))
+    } else {
+        let output_path = Path::new(output_file_path);
+        Box::new(BufWriter::with_capacity(BUFFER_SIZE, File::create(output_path)?))
+    };
 
     // 写入文件头
     writer.write_all(MAGIC_NUMBER.as_bytes())?;
@@ -107,9 +127,17 @@ pub fn encrypt_with_mode(input_file_path: &str, output_file_path: &str, password
     writer.write_all(&iv)?;
     writer.write_all(&(CHUNK_SIZE as u32).to_le_bytes())?;
 
-    let file = File::open(input_path)?;
-    let mut reader = BufReader::with_capacity(BUFFER_SIZE, file);
-    let file_size = input_path.metadata()?.len();
+    let (mut reader, file_size): (Box<dyn Read>, u64) = if input_file_path == "-" {
+        let input = read_stdin_with_progress()?;
+        let size = input.len() as u64;
+        reset_progress();
+        (Box::new(BufReader::with_capacity(BUFFER_SIZE, Cursor::new(input))), size)
+    } else {
+        let input_path = Path::new(input_file_path);
+        let file = File::open(input_path)?;
+        let file_size = input_path.metadata()?.len();
+        (Box::new(BufReader::with_capacity(BUFFER_SIZE, file)), file_size)
+    };
 
     let cipher = Aes256Gcm::new(GenericArray::from_slice(&encryption_key));
 
