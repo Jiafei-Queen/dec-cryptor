@@ -8,9 +8,88 @@ DEC! is a high‑performance file encryption utility written in Rust. It leverag
 
 - 🔒 **Military‑grade encryption** – Argon2id key derivation + AES‑256‑GCM
 - ⚡ **Parallel processing** – Utilises all CPU cores for peak performance
-- 📈 **Real‑time progress tracking** – Visual progress bars with throughput metrics
-- 💾 **Memory‑efficient** – Configurable buffer sizes for streaming I/O
+- 📈 **Terminal-friendly progress output** – Progress is rendered on `stderr`, so `stdout` remains pipe-safe
+- 🔁 **Unix-style streaming support** – Read from `stdin` and write to `stdout`
+- 💾 **Chunked file processing** – Configurable buffer sizes for file I/O
 - 🖥️ **Cross‑platform** – Works on Windows, macOS, and Linux
+
+## Build
+
+```bash
+cargo build --release
+```
+
+The binary will be available at:
+
+```text
+./target/release/dec
+```
+
+## Usage
+
+### Basic file encryption
+
+```bash
+dec -e secret.txt -p Password123
+```
+
+This writes the encrypted output to `secret.txt.decx`.
+
+### Basic file decryption
+
+```bash
+dec -d secret.txt.decx -p Password123
+```
+
+If the input ends with `.decx`, DEC! strips that suffix for the default output path.
+
+### Custom output path
+
+```bash
+dec -e archive.tar -p Password123 -o archive.bundle
+dec -d archive.bundle -p Password123 -o archive.tar
+```
+
+### Skip overwrite confirmation
+
+```bash
+dec -e secret.txt -p Password123 -q
+```
+
+`-q` only skips confirmation prompts. It does not disable progress output.
+
+### Stream plaintext from stdin to stdout
+
+```bash
+cat secret.txt | dec -e - -p Password123 --stdout > secret.txt.decx
+```
+
+You can also use the short form:
+
+```bash
+cat secret.txt | dec -e - -p Password123 -c > secret.txt.decx
+```
+
+### Stream ciphertext back to plaintext
+
+```bash
+cat secret.txt.decx | dec -d - -p Password123 --stdout > secret.txt
+```
+
+### Output behaviour
+
+- Progress output is written to `stderr`
+- Encrypted or decrypted stream data is written to `stdout` only when `--stdout` / `-c` is used
+- DEC! refuses to write stream data directly to an interactive terminal; redirect or pipe `stdout`
+
+## CLI Summary
+
+```text
+dec -e <input> [-p PASSWORD] [-o OUTPUT] [-q]
+dec -d <input> [-p PASSWORD] [-o OUTPUT] [-q]
+dec -e - [-p PASSWORD] --stdout
+dec -d - [-p PASSWORD] --stdout
+```
 
 ## Technical Details
 
@@ -61,9 +140,30 @@ Typical benchmarks on modern hardware:
 
 | Hardware | Encryption | Decryption |
 | -------- |----------|----------|
-| M4 Max MiBP | 843 MiB/s | 882 MiB/s |
+| M4 Max MBP | 843 MiB/s | 882 MiB/s |
 | i5-10400F + nvme | 575 MiB/s | 585MiB/s  |
 
+## Testing
+
+Run the normal test suite with:
+
+```bash
+cargo test
+```
+
+The repository also keeps a heavy performance-oriented integration test that is ignored by default:
+
+```bash
+cargo test -- --ignored
+```
+
+Current automated coverage includes:
+
+- Argument parsing and default output-path behaviour
+- File-based encrypt/decrypt round-trips
+- `stdin`/`stdout` streaming round-trips
+- `stderr` progress separation from `stdout` ciphertext/plaintext
+- Failure paths such as invalid ciphertext and wrong passwords
 
 ## Comparison With Other Tools
 
