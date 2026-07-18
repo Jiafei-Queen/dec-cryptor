@@ -15,6 +15,7 @@ pub const ARGON2_MEMORY_KIB: u32 = 256 * 1024;
 pub const ARGON2_PARALLELISM: u32 = 2;
 pub const MASTER_KEY_LENGTH: usize = 32;
 pub const BUFFER_SIZE: usize = 256 * 1024;
+pub const HEADER_SIZE: usize = MAGIC_NUMBER.len() + 1 + SALT_LENGTH + IV_LENGTH + 4; // 37
 
 /// 获取 CPU 线程数
 #[allow(dead_code)]
