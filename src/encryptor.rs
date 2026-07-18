@@ -3,7 +3,6 @@ use std::io::{Read, Write, BufReader, BufWriter, Cursor};
 use std::path::Path;
 use aes_gcm::Aes256Gcm;
 use aes_gcm::aead::{Aead, KeyInit};
-use generic_array::GenericArray;
 use rayon::prelude::*;
 use crate::crypto_utils::*;
 use crate::progress_utils::*;
@@ -112,7 +111,7 @@ pub fn encrypt_file(input_path: &str, output_path: &str, password: &str) -> Resu
     let salt = generate_salt();
     let iv = generate_iv();
     let encryption_key = key_derivation::derive_key(password.as_bytes(), &salt)?;
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(&encryption_key));
+    let cipher = Aes256Gcm::new_from_slice(&encryption_key)?;
 
     let src = Path::new(input_path);
     let file = File::open(src)?;
@@ -155,7 +154,7 @@ pub fn encrypt_stdin_to_stdout(password: &str) -> Result<(), Box<dyn std::error:
     let salt = generate_salt();
     let iv = generate_iv();
     let encryption_key = key_derivation::derive_key(password.as_bytes(), &salt)?;
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(&encryption_key));
+    let cipher = Aes256Gcm::new_from_slice(&encryption_key)?;
 
     let mut reader = BufReader::with_capacity(BUFFER_SIZE, Cursor::new(input));
     let mut writer = BufWriter::with_capacity(BUFFER_SIZE, std::io::stdout());
@@ -176,7 +175,7 @@ pub fn encrypt_with_mode(input_path: &str, output_path: &str, password: &str) ->
         let salt = generate_salt();
         let iv = generate_iv();
         let encryption_key = key_derivation::derive_key(password.as_bytes(), &salt)?;
-        let cipher = Aes256Gcm::new(GenericArray::from_slice(&encryption_key));
+        let cipher = Aes256Gcm::new_from_slice(&encryption_key)?;
 
         let src = Path::new(input_path);
         let file = File::open(src)?;

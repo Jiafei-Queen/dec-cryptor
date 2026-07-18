@@ -3,7 +3,6 @@ use std::io::{Read, Write, BufReader, BufWriter};
 use std::path::Path;
 use aes_gcm::Aes256Gcm;
 use aes_gcm::aead::{Aead, KeyInit};
-use generic_array::GenericArray;
 use rayon::prelude::*;
 use tempfile::NamedTempFile;
 use crate::crypto_utils::*;
@@ -148,7 +147,7 @@ pub fn decrypt_file(input_path: &str, output_path: &str, password: &str) -> Resu
 
     let (salt, iv, _chunk_size) = parse_header(&mut reader)?;
     let encryption_key = key_derivation::derive_key(password.as_bytes(), &salt)?;
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(&encryption_key));
+    let cipher = Aes256Gcm::new_from_slice(&encryption_key)?;
 
     let encrypted_size = file_size.saturating_sub(HEADER_SIZE as u64);
     if encrypted_size == 0 {
@@ -191,7 +190,7 @@ pub fn decrypt_stdin_to_stdout(password: &str) -> Result<(), Box<dyn std::error:
 
     let (salt, iv, _chunk_size) = parse_header(&mut reader)?;
     let encryption_key = key_derivation::derive_key(password.as_bytes(), &salt)?;
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(&encryption_key));
+    let cipher = Aes256Gcm::new_from_slice(&encryption_key)?;
 
     let encrypted_size = copied.saturating_sub(HEADER_SIZE as u64);
     if encrypted_size == 0 {
@@ -219,7 +218,7 @@ pub fn decrypt_with_mode(input_path: &str, output_path: &str, password: &str) ->
 
         let (salt, iv, _chunk_size) = parse_header(&mut reader)?;
         let encryption_key = key_derivation::derive_key(password.as_bytes(), &salt)?;
-        let cipher = Aes256Gcm::new(GenericArray::from_slice(&encryption_key));
+        let cipher = Aes256Gcm::new_from_slice(&encryption_key)?;
 
         let encrypted_size = file_size.saturating_sub(HEADER_SIZE as u64);
         if encrypted_size == 0 {

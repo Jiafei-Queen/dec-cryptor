@@ -1,5 +1,6 @@
 use rand::random;
 use aes_gcm::Nonce;
+use typenum::consts::U12;
 
 // 常量定义
 pub const MAGIC_NUMBER: &str = "DEC!";
@@ -35,16 +36,14 @@ pub fn generate_iv() -> Vec<u8> {
     iv.to_vec()
 }
 
-pub fn generate_nonce_for_chunk(base_iv: &[u8], index: u64) -> Nonce<generic_array::typenum::U12> {
+pub fn generate_nonce_for_chunk(base_iv: &[u8], index: u64) -> Nonce<U12> {
     let mut nonce_bytes = [0u8; 12];
     nonce_bytes.copy_from_slice(&base_iv[..12]);
     let index_bytes = index.to_le_bytes();
-    // 修改后4字节
     for i in 0..4 {
         nonce_bytes[8 + i] ^= index_bytes[i];
     }
-    // 修复点：显式转换回 Nonce 类型
-    *Nonce::<generic_array::typenum::U12>::from_slice(&nonce_bytes)
+    Nonce::<U12>::from(nonce_bytes)
 }
 
 #[cfg(test)]
