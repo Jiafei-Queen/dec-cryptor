@@ -31,7 +31,6 @@ fn format_units(bytes: u64) -> (f64, &'static str) {
 }
 
 /// 重置进度跟踪器（用于新任务）
-#[allow(dead_code)]
 pub fn reset_progress() {
     LAST_PROGRESS.store(-1, Ordering::Relaxed);
     SPINNER_INDEX.store(0, Ordering::Relaxed);
