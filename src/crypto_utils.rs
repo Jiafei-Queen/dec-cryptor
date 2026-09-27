@@ -30,7 +30,16 @@ pub fn aes_hardware_available() -> bool {
 
 // 常量定义
 pub const MAGIC_NUMBER: &str = "DEC!";
-pub const VERSION_SIGN: u8 = 0x03;
+/// 当前密文格式版本。
+///
+/// v4 在数据帧之后追加一个认证过的 **EOF 帧**（`[0u32][空载荷的 GCM tag]`，
+/// nonce 索引 = 数据帧数量），解密端必须见到它才算成功 —— 这样"尾部按帧边界
+/// 截断"不再能静默通过（v3 的逐块 GCM 只保护单帧内容，不保护帧序列完整性）。
+pub const VERSION_SIGN: u8 = 0x04;
+/// v3 及更早版本没有 EOF 帧，无法检测截断，**直接拒绝**。
+pub const LEGACY_VERSION_SIGN: u8 = 0x03;
+/// AES-GCM 认证标签长度；也是 EOF 帧载荷部分的长度。
+pub const GCM_TAG_LENGTH: usize = 16;
 pub const SALT_LENGTH: usize = 16;
 pub const IV_LENGTH: usize = 12;
 /// 默认块大小：1MB (用于并行处理)
@@ -109,7 +118,9 @@ mod tests {
     #[test]
     fn test_constants() {
         assert_eq!(MAGIC_NUMBER, "DEC!");
-        assert_eq!(VERSION_SIGN, 0x03);
+        assert_eq!(VERSION_SIGN, 0x04);
+        assert_eq!(LEGACY_VERSION_SIGN, 0x03);
+        assert_eq!(GCM_TAG_LENGTH, 16);
         assert_eq!(SALT_LENGTH, 16);
         assert_eq!(IV_LENGTH, 12);
         assert_eq!(MASTER_KEY_LENGTH, 32);

@@ -27,7 +27,10 @@ fn print_usage() {
     println!("  dec -d example.tar.decx");
     println!();
     println!("  # Encrypt from stdin to stdout");
-    println!("  cat plain.txt | dec -e - -p secret --stdout > plain.txt.decx");
+    println!("  cat plain.txt | dec -e - -p secret > plain.txt.decx");
+    println!();
+    println!("  # Encrypt from stdin to a file");
+    println!("  cat plain.txt | dec -e - -p secret -o plain.txt.decx");
 
     println!("Operations:");
     println!("  -e, --encrypt\t\t\tencrypt a file");
@@ -75,9 +78,13 @@ fn main() {
     let input_path = args.input_path;
     let output_path = args.output_path.clone();
     let password = args.password;
-    let stdout_output = args.stdout;
 
-    if stdout_output && io::stdout().is_terminal() {
+    // 是否写 stdout 必须按"最终输出去向"判定，而不是 `-c/--stdout` 标志：
+    // `-d -` / `-e -`（stdin 输入）与 `-o -` 同样会把流数据写到 stdout，
+    // 先前这两条路径都绕过了终端拒写保护（明文会被直接喷到 TTY 上）。
+    let writes_to_stdout = output_path == "-";
+
+    if writes_to_stdout && io::stdout().is_terminal() {
         eprintln!(
             "{}{}refusing to write stream data to the terminal; redirect or pipe stdout{}",
             PREFIX, RED, RESET
@@ -86,7 +93,16 @@ fn main() {
     }
 
     // 检查输出文件是否已存在
-    if !stdout_output && !args.quiet && Path::new(&output_path).exists() {
+    if !writes_to_stdout && !args.quiet && Path::new(&output_path).exists() {
+        if input_path == "-" {
+            // 输入是 stdin 流时不能弹 y/n：提示读的就是 stdin，会把 payload
+            // 当成回答吃掉（数据静默丢失）。只能要求显式 `-q`。
+            eprintln!(
+                "{}{}output file already {}EXISTS{}; pass {}-q{} to overwrite it{}",
+                PREFIX, RED, BOLD, RESET, BOLD, RESET, RESET
+            );
+            std::process::exit(1);
+        }
         eprint!("> output file already {}EXISTS{}, {}{}overwrite{}? [y/n]: ", BOLD, RESET, BOLD, RED, RESET);
         io::stderr().flush().unwrap();
         if !confirm() { return; }
@@ -189,7 +205,11 @@ fn confirm_password(password: &String) -> bool {
 fn confirm() -> bool {
     loop {
         let mut input = String::new();
-        io::stdin().read_line(&mut input).unwrap();
+        // EOF / 读失败时按"取消"处理：否则 `read_line` 立刻返回 0 会无限重问。
+        if io::stdin().read_line(&mut input).unwrap_or(0) == 0 {
+            eprintln!();
+            return false;
+        }
         if input.trim() == "y" {
             return true;
         } else if input.trim() == "n" {

@@ -10,7 +10,6 @@ pub struct Args {
     pub output_path: String,
     pub password: Option<String>,
     pub quiet: bool,
-    pub stdout: bool,
 }
 
 /// `-p` / `-o` 后面跟的是"值"还是"另一个选项"。
@@ -86,7 +85,10 @@ pub fn parse_args(args: &Vec<String>) -> Result<Args, String> {
 
     // 当未指定 输出文件路径 时
     if output_path.is_none() {
-        if stdout {
+        if stdout || input_path == "-" {
+            // `-` 输入天然是流式场景：未给 `-o` 时默认写 stdout
+            // （旧行为会推出 `-.decx` / `-.out` 这种假文件名，随后又被
+            //  `*_with_mode` 的 stdin 分支忽略，属于静默不一致）。
             output_path = Some("-".to_string());
         } else {
             match op {
@@ -104,7 +106,9 @@ pub fn parse_args(args: &Vec<String>) -> Result<Args, String> {
 
     let output = output_path.unwrap();
 
-    Ok(Args { op, input_path, output_path: output, password, quiet, stdout })
+    // `-c/--stdout` 不单独留存：它和 `-o -`、`-` 输入一样，最终都体现为
+    // `output_path == "-"`，路由只需要看输出路径。
+    Ok(Args { op, input_path, output_path: output, password, quiet })
 }
 
 #[cfg(test)]
@@ -127,7 +131,6 @@ mod tests {
         assert_eq!(parsed_args.op, Op::Enc);
         assert_eq!(parsed_args.output_path, format!("{}.decx", test_file.path().to_str().unwrap()));
         assert_eq!(parsed_args.quiet, false);
-        assert_eq!(parsed_args.stdout, false);
     }
 
     #[test]
@@ -152,7 +155,6 @@ mod tests {
         assert_eq!(parsed_args.output_path, "custom_output.txt");
         assert_eq!(parsed_args.password, Some("testpassword".to_string()));
         assert_eq!(parsed_args.quiet, true);
-        assert_eq!(parsed_args.stdout, false);
     }
 
     #[test]
@@ -169,7 +171,6 @@ mod tests {
         assert!(result.is_ok());
         let parsed_args = result.unwrap();
         assert_eq!(parsed_args.output_path, "-");
-        assert_eq!(parsed_args.stdout, true);
     }
 
     #[test]
@@ -185,7 +186,26 @@ mod tests {
         let parsed_args = result.unwrap();
         assert_eq!(parsed_args.input_path, "-");
         assert_eq!(parsed_args.output_path, "-");
-        assert_eq!(parsed_args.stdout, true);
+    }
+
+    /// `-` 输入且未给 `-o` 时，默认输出去向是 stdout（不是 `-.decx` / `-.out`）。
+    #[test]
+    fn test_parse_args_stdin_default_output_is_stdout() {
+        for op in ["-e", "-d"] {
+            let args = vec![op.to_string(), "-".to_string()];
+            let parsed = parse_args(&args).expect("stdin mode should parse");
+            assert_eq!(parsed.input_path, "-");
+            assert_eq!(parsed.output_path, "-", "stdin input must default to stdout");
+        }
+
+        // 显式 `-o` 仍然优先，不受 `-` 输入影响
+        let args = vec![
+            "-d".to_string(),
+            "-".to_string(),
+            "-o".to_string(),
+            "out.bin".to_string(),
+        ];
+        assert_eq!(parse_args(&args).unwrap().output_path, "out.bin");
     }
 
     #[test]
@@ -219,7 +239,6 @@ mod tests {
         assert!(result.is_ok());
         let parsed_args = result.unwrap();
         assert_eq!(parsed_args.output_path, "-");
-        assert!(parsed_args.stdout);
     }
 
     #[test]
