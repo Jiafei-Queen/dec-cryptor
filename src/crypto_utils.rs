@@ -2,6 +2,32 @@ use rand::random;
 use aes_gcm::Nonce;
 use typenum::consts::U12;
 
+/// Returns true if the running CPU exposes hardware-accelerated AES.
+///
+/// On x86 / x86_64 we check for the `aes` feature at runtime so the same
+/// binary can ship on machines with and without AES-NI.
+///
+/// On aarch64 the FEAT_AES extension is mandatory from ARMv8.0-A onward,
+/// so we trust the target without an extra runtime probe.
+///
+/// Other architectures fall back to "no hardware AES" and rely on the
+/// parallel chunk path (which only matters when software AES is the
+/// bottleneck).
+pub fn aes_hardware_available() -> bool {
+    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+    {
+        is_x86_feature_detected!("aes")
+    }
+    #[cfg(target_arch = "aarch64")]
+    {
+        true
+    }
+    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        false
+    }
+}
+
 // 常量定义
 pub const MAGIC_NUMBER: &str = "DEC!";
 pub const VERSION_SIGN: u8 = 0x03;
@@ -88,6 +114,20 @@ mod tests {
         assert_eq!(IV_LENGTH, 12);
         assert_eq!(MASTER_KEY_LENGTH, 32);
         assert_eq!(CHUNK_SIZE, 1024 * 1024);
-        assert_eq!(PARALLEL_THRESHOLD, 16 * 1024);
+        assert_eq!(PARALLEL_THRESHOLD, 1024 * 1024);
+    }
+
+    #[test]
+    fn test_aes_hardware_available_matches_target() {
+        // The probe must agree with the target arch:
+        //   aarch64 -> always true (FEAT_AES mandatory from ARMv8.0-A)
+        //   x86/x86_64 -> true iff runtime AES-NI feature is present
+        //   anything else -> false
+        let result = aes_hardware_available();
+        #[cfg(target_arch = "aarch64")]
+        assert!(result, "aarch64 must report hardware AES available");
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
+        assert!(!result, "non-x86 non-aarch64 targets must report no hardware AES");
+        // On x86 we cannot assert either way (depends on the host CPU).
     }
 }

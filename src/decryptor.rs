@@ -8,6 +8,7 @@ use std::thread;
 
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::Aes256Gcm;
+use rayon::prelude::*;
 use tempfile::NamedTempFile;
 
 use crate::crypto_utils::*;
@@ -69,16 +70,22 @@ where
 ///
 /// - 每个 channel 容量受限 → 天然背压，避免任一阶段堆积无界内存。
 /// - Writer 端维护 `BTreeMap<u64, _>` 窗口，保证输出按 idx 严格递增。
-/// - 错误 / 取消信号通过共享 `Arc<AtomicBool>` + `Arc<Mutex<Option<String>>>` 传播。
+/// - 错误 / 取消信号通过共享 `Arc<Mutex<Option<String>>>` 传播；channel close
+///   自然传递，保证 writer 退出前把 out_channel 里的所有 chunk 都消费掉。
 /// - 三个 thread 启动后主线程 `join` 等待；任一阶段出错都会让其他阶段提前退出。
 ///
+/// `chunk_parallel`：与 `encrypt_parallel` 同义。
+/// - `false`（默认，硬件 AES）：单 worker 算 AES。
+/// - `true`（软 AES）：批量 + rayon par_iter + 按 idx 排序发送。
+///
 /// 内存峰值与文件大小**无关**：`3 × (PIPELINE_DEPTH + 1) × CHUNK_SIZE`。
-fn decrypt_parallel<R, W>(
+pub(crate) fn decrypt_parallel<R, W>(
     mut reader: R,
     mut writer: W,
     cipher: Arc<Aes256Gcm>,
     iv: Arc<Vec<u8>>,
     encrypted_size: u64,
+    chunk_parallel: bool,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>
 where
     R: Read + Send + 'static,
@@ -122,21 +129,81 @@ where
         drop(in_tx);
     });
 
-    // ── Decryptor thread (单 worker) ──
+    // ── Decryptor thread ──
+    // 单 worker 串行算 AES（chunk_parallel = false）；或
+    // 批量并发算 AES（chunk_parallel = true，仅在没有硬件 AES 的机器上）。
+    // 与 encrypt_parallel 同形的 batch strategy：积累 BATCH_SIZE 个密文块后
+    // 用 rayon 并行解密，再按 idx 排序写回 out_tx。
+    const BATCH_SIZE: usize = 8;
     let err_e = Arc::clone(&error);
+    let err_e2 = Arc::clone(&error);
     let decryptor_handle = thread::spawn(move || {
-        // 通过 in_rx.recv() 返回 Err 自然退出（reader drop in_tx 后）
-        while let Ok((idx, ciphertext)) = in_rx.recv() {
-            match decrypt_chunk(&cipher, &iv, idx, &ciphertext) {
-                Ok(plaintext) => {
-                    if out_tx.send((idx, plaintext)).is_err() {
-                        *err_e.lock().unwrap() =
-                            Some("downstream closed unexpectedly".into());
+        if !chunk_parallel {
+            // 单线程路径
+            while let Ok((idx, ciphertext)) = in_rx.recv() {
+                match decrypt_chunk(&cipher, &iv, idx, &ciphertext) {
+                    Ok(plaintext) => {
+                        if out_tx.send((idx, plaintext)).is_err() {
+                            *err_e.lock().unwrap() =
+                                Some("downstream closed unexpectedly".into());
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        *err_e.lock().unwrap() = Some(e);
                         break;
                     }
                 }
-                Err(e) => {
-                    *err_e.lock().unwrap() = Some(e);
+            }
+        } else {
+            // 多线程路径：批量 + rayon par_iter + 按 idx 排序发送
+            use std::collections::VecDeque;
+            let mut pending: VecDeque<(u64, Vec<u8>)> = VecDeque::with_capacity(BATCH_SIZE);
+            let mut drain_err: bool = false;
+
+            loop {
+                while pending.len() < BATCH_SIZE {
+                    match in_rx.recv() {
+                        Ok(item) => pending.push_back(item),
+                        Err(_) => {
+                            drain_err = true;
+                            break;
+                        }
+                    }
+                }
+
+                if pending.is_empty() {
+                    break;
+                }
+
+                let batch: Vec<(u64, Vec<u8>)> = pending.drain(..).collect();
+                let cipher_ref = &cipher;
+                let iv_ref = &iv;
+                let mut results: Vec<(u64, Result<Vec<u8>, String>)> = batch
+                    .par_iter()
+                    .map(|(idx, ciphertext)| {
+                        (*idx, decrypt_chunk(cipher_ref, iv_ref, *idx, ciphertext))
+                    })
+                    .collect();
+                results.sort_by_key(|(idx, _)| *idx);
+
+                for (idx, r) in results {
+                    match r {
+                        Ok(plaintext) => {
+                            if out_tx.send((idx, plaintext)).is_err() {
+                                *err_e2.lock().unwrap() =
+                                    Some("downstream closed unexpectedly".into());
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            *err_e2.lock().unwrap() = Some(e);
+                            break;
+                        }
+                    }
+                }
+
+                if drain_err || err_e2.lock().unwrap().is_some() {
                     break;
                 }
             }
@@ -184,9 +251,11 @@ where
     Ok(())
 }
 
-/// 基于流的解密核心 —— 根据数据量自动选择并行/串行模式。
+/// 基于流的解密核心 —— 根据数据量与硬件能力自动选择并行模式。
 ///
-/// 并行模式现在通过有界流水线实现，**内存峰值与文件大小无关**。
+/// 并行模式现在通过有界流水线实现，**内存峰值与文件大小无关**；
+/// AES 计算是否在解密阶段内部多线程并行，由运行时硬件能力决定
+/// （详见 `encrypt_stream` 的 doc 注释；语义完全对称）。
 ///
 /// 边界 `R/W: Read/Write + Send + 'static`：流水线阶段需要把 reader/writer
 /// move 进独立线程，因此 caller 必须传 owned reader/writer（如 `BufReader<File>`、
@@ -203,12 +272,14 @@ where
     W: Write + Send + 'static,
 {
     if encrypted_size > PARALLEL_THRESHOLD as u64 {
+        let chunk_parallel = !aes_hardware_available();
         decrypt_parallel(
             reader,
             writer,
             Arc::new(cipher.clone()),
             Arc::new(iv.to_vec()),
             encrypted_size,
+            chunk_parallel,
         )
         .map_err(|e| -> Box<dyn std::error::Error> { e })
     } else {
@@ -340,4 +411,128 @@ pub fn decrypt_with_mode(input_path: &str, output_path: &str, password: &str) ->
         return Ok(());
     }
     decrypt_file(input_path, output_path, password)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::encryptor::{encrypt_serial, encrypt_parallel};
+
+    /// 测试用 Write：通过 Arc<Mutex<Vec<u8>>> 跨线程捕获输出。
+    struct SharedWrite(Arc<Mutex<Vec<u8>>>);
+    impl Write for SharedWrite {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    }
+    fn shared_write() -> (SharedWrite, Arc<Mutex<Vec<u8>>>) {
+        let v = Arc::new(Mutex::new(Vec::new()));
+        (SharedWrite(Arc::clone(&v)), v)
+    }
+
+    fn make_cipher(password: &[u8], salt: &[u8], iv: &[u8]) -> Aes256Gcm {
+        let key = key_derivation::derive_key(password, salt).unwrap();
+        Aes256Gcm::new_from_slice(&key).unwrap()
+    }
+
+    /// 显式走 decrypt_parallel(chunk_parallel=true) 解密一份"硬 AES 加密过的"密文，
+    /// 验证两种内部走向的密文格式完全等价（即加密侧怎么走向，解密侧都能正确解密）。
+    #[test]
+    fn test_chunk_parallel_decrypt_hard_aes_ciphertext() {
+        let plaintext: Vec<u8> = (0..(2 * CHUNK_SIZE) as u32)
+            .map(|i| (i ^ 0x5a) as u8)
+            .collect();
+
+        let mut input = tempfile::NamedTempFile::new().unwrap();
+        std::io::Write::write_all(input.as_file_mut(), &plaintext).unwrap();
+        input.as_file_mut().flush().unwrap();
+
+        let salt = generate_salt();
+        let iv = generate_iv();
+        let cipher = make_cipher(b"test-pass", &salt, &iv);
+
+        // 加密走硬 AES（chunk_parallel = false）路径
+        let (enc_w, enc_captured) = shared_write();
+        encrypt_parallel(
+            BufReader::with_capacity(BUFFER_SIZE, input.reopen().unwrap()),
+            enc_w,
+            Arc::new(cipher.clone()),
+            Arc::new(iv.clone()),
+            plaintext.len() as u64,
+            false,
+        )
+        .unwrap();
+        let enc_out = enc_captured.lock().unwrap().clone();
+
+        // 解密走 chunk_parallel = true 路径
+        let mut dec_input = tempfile::NamedTempFile::new().unwrap();
+        std::io::Write::write_all(dec_input.as_file_mut(), &crate::encryptor::build_header(&salt, &iv)).unwrap();
+        std::io::Write::write_all(dec_input.as_file_mut(), &enc_out).unwrap();
+        dec_input.as_file_mut().flush().unwrap();
+
+        let (w, captured) = shared_write();
+        let mut dec_file = dec_input.reopen().unwrap();
+        crate::decryptor::parse_header(&mut dec_file).unwrap();
+        decrypt_parallel(
+            BufReader::with_capacity(BUFFER_SIZE, dec_file),
+            w,
+            Arc::new(cipher.clone()),
+            Arc::new(iv.clone()),
+            enc_out.len() as u64,
+            true,
+        )
+        .unwrap();
+        let dec_out = captured.lock().unwrap().clone();
+
+        assert_eq!(dec_out, plaintext, "decrypt_parallel(chunk_parallel=true) must accept hard-AES-encrypted ciphertext");
+    }
+
+    /// encrypt_serial（小文件路径）→ decrypt_parallel(chunk_parallel=true) roundtrip。
+    #[test]
+    fn test_serial_cipher_chunk_parallel_decrypt_roundtrip() {
+        let plaintext: Vec<u8> = (0..(PARALLEL_THRESHOLD / 2) as u32)
+            .map(|i| (i.wrapping_mul(31) ^ (i >> 16)) as u8)
+            .collect();
+
+        let mut input = tempfile::NamedTempFile::new().unwrap();
+        std::io::Write::write_all(input.as_file_mut(), &plaintext).unwrap();
+        input.as_file_mut().flush().unwrap();
+
+        let salt = generate_salt();
+        let iv = generate_iv();
+        let cipher = make_cipher(b"test-pass", &salt, &iv);
+
+        let mut enc_out: Vec<u8> = Vec::new();
+        encrypt_serial(
+            BufReader::with_capacity(BUFFER_SIZE, input.reopen().unwrap()),
+            &mut enc_out,
+            &cipher,
+            &iv,
+            plaintext.len() as u64,
+        )
+        .unwrap();
+
+        let mut dec_input = tempfile::NamedTempFile::new().unwrap();
+        std::io::Write::write_all(dec_input.as_file_mut(), &crate::encryptor::build_header(&salt, &iv)).unwrap();
+        std::io::Write::write_all(dec_input.as_file_mut(), &enc_out).unwrap();
+        dec_input.as_file_mut().flush().unwrap();
+
+        let (w, captured) = shared_write();
+        let mut dec_file = dec_input.reopen().unwrap();
+        crate::decryptor::parse_header(&mut dec_file).unwrap();
+        decrypt_parallel(
+            BufReader::with_capacity(BUFFER_SIZE, dec_file),
+            w,
+            Arc::new(cipher.clone()),
+            Arc::new(iv.clone()),
+            enc_out.len() as u64,
+            true,
+        )
+        .unwrap();
+        let dec_out = captured.lock().unwrap().clone();
+
+        assert_eq!(dec_out, plaintext);
+    }
 }
