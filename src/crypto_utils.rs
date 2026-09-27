@@ -9,8 +9,9 @@ pub const SALT_LENGTH: usize = 16;
 pub const IV_LENGTH: usize = 12;
 /// 默认块大小：1MB (用于并行处理)
 pub const CHUNK_SIZE: usize = 1024 * 1024;
-/// 并行处理阈值：16KB (小于此值使用单线程)
-pub const PARALLEL_THRESHOLD: usize = 16 * 1024;
+/// **< 1 MiB**：单线程路径。Argon2 KDF（~270 ms）已经主导耗时，
+/// 3 个 thread 的创建/join 开销（~50-100 µs）毫无收益。
+pub const PARALLEL_THRESHOLD: usize = 1024 * 1024;
 pub const ARGON2_ITERATIONS: u32 = 3;
 pub const ARGON2_MEMORY_KIB: u32 = 256 * 1024;
 pub const ARGON2_PARALLELISM: u32 = 2;
