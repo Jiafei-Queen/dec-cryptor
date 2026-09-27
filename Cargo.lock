@@ -190,7 +190,7 @@ dependencies = [
 
 [[package]]
 name = "dec-cryptor"
-version = "3.1.1"
+version = "4.0.0"
 dependencies = [
  "aes-gcm",
  "argon2",
