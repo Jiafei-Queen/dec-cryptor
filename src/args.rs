@@ -13,6 +13,24 @@ pub struct Args {
     pub stdout: bool,
 }
 
+/// `-p` / `-o` 后面跟的是"值"还是"另一个选项"。
+///
+/// 只把**本程序自己认识的选项 token** 判定为 flag，而不是简单看首字符是否为 `-`：
+/// 密码 / 文件名合法地可以以连字符开头（`-p -secret`），一刀切拒绝会造成回归。
+/// 而 `dec -e file -o -q` 这种"忘了写值"的情况，如果照单全收就会静默地
+/// 写进一个名为 `-q` 的文件 —— 那才是真正危险的静默行为。
+fn is_option_flag(token: &str) -> bool {
+    matches!(token, "-q" | "--quiet" | "-c" | "--stdout" | "-p" | "--password" | "-o" | "--output")
+}
+
+/// 取出 `flag` 后面跟的值，缺值时返回 `Err(flag)` 里描述的错误文案。
+fn take_value<'a>(args: &'a [String], i: usize, flag: &str) -> Result<&'a String, String> {
+    match args.get(i + 1) {
+        Some(v) if !is_option_flag(v) => Ok(v),
+        _ => Err(format!("missing value for {}", flag)),
+    }
+}
+
 pub fn parse_args(args: &Vec<String>) -> Result<Args, String> {
     if args.len() < 2 { return Err("arg too short".to_string()); }
 
@@ -30,37 +48,34 @@ pub fn parse_args(args: &Vec<String>) -> Result<Args, String> {
     let mut output_path: Option<String> = None;
     let mut password: Option<String> = None;
 
-    if args.len() > 2 {
-        let mut skip = false;
-        let mut i: usize = 2;
-        for v in &args[2..] {
-            i += 1;
-            if skip { skip = false; continue; }
-            match v.as_str() {
-                "-q" | "--quiet" => { quiet = true; }
-                "-c" | "--stdout" => { stdout = true; }
+    // 用显式游标 `i` 推进：带值的选项自己把游标 +2，其余 +1。
+    // 之前这里用 `skip` 标志位 + 预置游标，`-p` / `-o` 落在末尾时
+    // `args[i]` 会越界 panic；现在一律走 `take_value`，缺值返回 Err，
+    // 由 main 打印 usage + 错误信息，不再崩溃。
+    let mut i: usize = 2;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-q" | "--quiet" => { quiet = true; i += 1; }
+            "-c" | "--stdout" => { stdout = true; i += 1; }
 
-                "-p" | "--password" => {
-                    if password.is_none() {
-                        password = Some(args[i].clone());
-                        skip = true;
-                    } else {
-                        return Err("one password option only".to_string());
-                    }
+            "-p" | "--password" => {
+                if password.is_some() {
+                    return Err("one password option only".to_string());
                 }
+                password = Some(take_value(args, i, "-p/--password")?.clone());
+                i += 2;
+            }
 
-                "-o" | "--output" => {
-                    if output_path.is_none() {
-                        output_path = Some(args[i].clone());
-                        skip = true;
-                    } else {
-                        return Err("one output option only".to_string());
-                    }
+            "-o" | "--output" => {
+                if output_path.is_some() {
+                    return Err("one output option only".to_string());
                 }
+                output_path = Some(take_value(args, i, "-o/--output")?.clone());
+                i += 2;
+            }
 
-                _ => {
-                    return Err("unknown option".to_string());
-                }
+            _ => {
+                return Err("unknown option".to_string());
             }
         }
     }
@@ -255,6 +270,107 @@ mod tests {
         let result = parse_args(&args);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), "no such file");
+    }
+
+    /// 回归测试：`-p` 落在参数末尾且没有跟值时，曾经直接 `args[i]` 越界 panic。
+    #[test]
+    fn test_parse_args_password_missing_value_is_error() {
+        let test_file = create_test_file("test_input.txt");
+        let args = vec![
+            "-e".to_string(),
+            test_file.path().to_str().unwrap().to_string(),
+            "-p".to_string(),
+        ];
+
+        let result = parse_args(&args);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "missing value for -p/--password");
+    }
+
+    /// 回归测试：`-o` 落在参数末尾且没有跟值时，曾经直接 `args[i]` 越界 panic。
+    #[test]
+    fn test_parse_args_output_missing_value_is_error() {
+        let test_file = create_test_file("test_input.txt");
+        let args = vec![
+            "-d".to_string(),
+            test_file.path().to_str().unwrap().to_string(),
+            "-o".to_string(),
+        ];
+
+        let result = parse_args(&args);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "missing value for -o/--output");
+    }
+
+    /// 长形式的 `--password` / `--output` 同样要安全报错。
+    #[test]
+    fn test_parse_args_long_form_missing_value_is_error() {
+        let test_file = create_test_file("test_input.txt");
+        let path = test_file.path().to_str().unwrap().to_string();
+
+        let missing_password = vec!["-e".to_string(), path.clone(), "--password".to_string()];
+        assert_eq!(
+            parse_args(&missing_password).unwrap_err(),
+            "missing value for -p/--password"
+        );
+
+        let missing_output = vec!["-e".to_string(), path, "--output".to_string()];
+        assert_eq!(
+            parse_args(&missing_output).unwrap_err(),
+            "missing value for -o/--output"
+        );
+    }
+
+    /// 缺值后再跟其它选项，仍要稳定报错而不是 panic（游标推进不能错位）。
+    #[test]
+    fn test_parse_args_missing_value_before_other_options_is_error() {
+        let test_file = create_test_file("test_input.txt");
+        let mut with_trailing_flag = vec![
+            "-e".to_string(),
+            test_file.path().to_str().unwrap().to_string(),
+            "-o".to_string(),
+        ];
+        // `-q` 不会被误当成 `-o` 的值
+        with_trailing_flag.push("-q".to_string());
+
+        let result = parse_args(&with_trailing_flag);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "missing value for -o/--output");
+    }
+
+    /// 密码本身可以合法地以连字符开头，不应该被当成"缺值"。
+    #[test]
+    fn test_parse_args_password_may_start_with_dash() {
+        let test_file = create_test_file("test_input.txt");
+        let args = vec![
+            "-e".to_string(),
+            test_file.path().to_str().unwrap().to_string(),
+            "-p".to_string(),
+            "-leading-dash".to_string(),
+        ];
+
+        let result = parse_args(&args);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().password, Some("-leading-dash".to_string()));
+    }
+
+    /// 重复选项的报错行为保持不变。
+    #[test]
+    fn test_parse_args_duplicate_options_still_rejected() {
+        let test_file = create_test_file("test_input.txt");
+        let path = test_file.path().to_str().unwrap().to_string();
+
+        let dup_password = vec![
+            "-e".to_string(), path.clone(), "-p".to_string(), "a".to_string(),
+            "-p".to_string(), "b".to_string(),
+        ];
+        assert_eq!(parse_args(&dup_password).unwrap_err(), "one password option only");
+
+        let dup_output = vec![
+            "-e".to_string(), path, "-o".to_string(), "a".to_string(),
+            "-o".to_string(), "b".to_string(),
+        ];
+        assert_eq!(parse_args(&dup_output).unwrap_err(), "one output option only");
     }
 
     // 辅助函数：创建临时测试文件
